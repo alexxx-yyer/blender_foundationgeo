@@ -21,11 +21,12 @@ if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
 
 import cli
-import convert_depth
 
 if IN_BLENDER:
     import export_camera
     import render
+else:
+    import depth_convert
 
 
 # ==================== Blender 内部函数 ====================
@@ -106,11 +107,15 @@ def find_blender_executable():
 
 def convert_single_exr(exr_file: str, depth_exr_dir: str, colormap: str = "turbo",
                        silent: bool = True):
-    return convert_depth.convert_single_exr(exr_file, depth_exr_dir, colormap, silent)
+    if IN_BLENDER:
+        raise RuntimeError("EXR 转换只能在外部环境中运行")
+    return depth_convert.convert_single_exr(exr_file, depth_exr_dir, colormap, silent)
 
 
 def convert_exr_files(depth_exr_dir: str, colormap: str = "turbo"):
-    return convert_depth.convert_exr_files(depth_exr_dir, colormap)
+    if IN_BLENDER:
+        raise RuntimeError("EXR 转换只能在外部环境中运行")
+    return depth_convert.convert_exr_files(depth_exr_dir, colormap)
 
 
 def main_external(blend_file: str, output_dir: str,
@@ -243,7 +248,12 @@ if __name__ == "__main__":
     else:
         argv = sys.argv[1:]
 
-    args = cli.parse_args(argv)
+    args = cli.parse_render_args(argv)
+
+    if args.device:
+        os.environ["FG_DEVICE"] = str(args.device)
+    if args.compute_type:
+        os.environ["FG_COMPUTE_TYPE"] = str(args.compute_type)
 
     if IN_BLENDER:
         try:

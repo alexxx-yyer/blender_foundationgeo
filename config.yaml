@@ -1,0 +1,33 @@
+# 渲染配置示例（YAML）
+# 说明：
+# - 未设置或为 null 的字段会走脚本默认值
+# - CLI 参数优先级高于配置文件
+
+input: /home/alex/projects/FoundationGeo/data/blender/blender-4.5-splash.blend
+output: /home/alex/projects/FoundationGeo/scene
+
+# 相机（可选）
+camera: null
+
+# 分辨率（一般设为 null，保持 Blender 场景原始设置）
+width: null
+height: null
+
+# 动画导出
+export_animation: true
+frame_start: null
+frame_end: null
+frame_step: 1
+
+# 转换选项
+skip_conversion: false
+colormap: turbo
+
+# Blender 可执行路径（可选）
+blender: null
+
+# 渲染设备（可选）
+# device: CPU / GPU
+# compute_type: CUDA / OPTIX / HIP / METAL / ONEAPI
+device: GPU
+compute_type: CUDA

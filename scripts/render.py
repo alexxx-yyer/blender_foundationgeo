@@ -13,6 +13,37 @@ except ImportError:
     IN_BLENDER = False
 
 
+def apply_render_device(device: str | None, compute_type: str | None = None) -> None:
+    """
+    根据配置设置 Blender 渲染设备
+    device: CPU / GPU
+    compute_type: CUDA / OPTIX / HIP / METAL / ONEAPI
+    """
+    if not IN_BLENDER or not device:
+        return
+
+    device = str(device).strip().upper()
+    compute_type = str(compute_type).strip().upper() if compute_type else None
+
+    if compute_type:
+        try:
+            cycles_prefs = bpy.context.preferences.addons.get("cycles")
+            if cycles_prefs:
+                cycles_prefs.preferences.compute_device_type = compute_type
+                if hasattr(cycles_prefs.preferences, "get_devices"):
+                    cycles_prefs.preferences.get_devices()
+        except Exception:
+            pass
+
+    if device == "CPU":
+        bpy.context.scene.cycles.device = "CPU"
+        return
+
+    if device == "GPU":
+        bpy.context.scene.cycles.device = "GPU"
+        return
+
+
 def get_render_device_info():
     """获取渲染设备信息"""
     if not IN_BLENDER:
@@ -299,6 +330,11 @@ def render_frames(blend_path: str, output_dir: str,
         frame_end = scene.frame_current
 
     total_frames = len(range(frame_start, frame_end + 1, frame_step))
+
+    apply_render_device(
+        os.environ.get("FG_DEVICE"),
+        os.environ.get("FG_COMPUTE_TYPE"),
+    )
 
     print(f"  渲染引擎: {scene.render.engine}")
     device_info = get_render_device_info()

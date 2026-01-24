@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """统一入口：渲染 + 转换 + 独立转换工具"""
 
-import argparse
 import os
 import sys
 
@@ -13,75 +12,76 @@ def _load_modules():
         sys.path.insert(0, scripts_dir)
 
     import render_and_convert
-    import exr2npy
-    import exr2png
+    import depth_convert
 
-    return render_and_convert, exr2npy, exr2png
+    return render_and_convert, depth_convert
 
 
-def _build_parser():
-    parser = argparse.ArgumentParser(
-        description="FoundationGeo 工具入口（渲染 + EXR 转换）"
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def _load_yaml_config(path: str) -> dict:
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("缺少 PyYAML，请先安装：pip install pyyaml") from exc
 
-    render = subparsers.add_parser(
-        "render",
-        help="调用 Blender 渲染，并可选实时转换 EXR",
-    )
-    render.add_argument("blend_file", help="输入的 .blend 文件路径")
-    render.add_argument("-o", "--output", required=True, help="输出目录（scene/）")
-    render.add_argument("-c", "--camera", help="相机名称（默认：活动相机）")
-    render.add_argument("-w", "--width", type=int, help="渲染宽度（默认：使用场景设置）")
-    render.add_argument("--height", type=int, help="渲染高度（默认：使用场景设置）")
-    render.add_argument("--export-animation", action="store_true", help="导出动画中每一帧")
-    render.add_argument("--frame-start", type=int, default=None, help="起始帧（默认：使用场景设置）")
-    render.add_argument("--frame-end", type=int, default=None, help="结束帧（默认：使用场景设置）")
-    render.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
-    render.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换（仅渲染）")
-    render.add_argument("--colormap", default="turbo", help="PNG 转换的 colormap（默认：turbo）")
-    render.add_argument("--blender", help="Blender 可执行文件路径（默认：自动查找）")
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
 
-    exr2all = subparsers.add_parser(
-        "exr2all",
-        help="将 depth/exr 目录下的 EXR 转换为 NPY + PNG",
-    )
-    exr2all.add_argument("depth_exr_dir", help="depth/exr 目录路径")
-    exr2all.add_argument("--colormap", default="turbo", help="PNG 转换的 colormap（默认：turbo）")
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("YAML 顶层必须是字典")
+    return data
 
-    exr2npy_cmd = subparsers.add_parser(
-        "exr2npy",
-        help="单独执行 EXR -> NPY",
-    )
-    exr2npy_cmd.add_argument("input", help="输入的 EXR 文件路径或目录")
-    exr2npy_cmd.add_argument("-o", "--output", help="输出的 NPY 文件路径或目录（可选）")
-    exr2npy_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
-    exr2npy_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
 
-    exr2png_cmd = subparsers.add_parser(
-        "exr2png",
-        help="单独执行 EXR -> PNG",
-    )
-    exr2png_cmd.add_argument("input", help="输入的 EXR 文件路径或目录")
-    exr2png_cmd.add_argument("-o", "--output", help="输出的 PNG 文件路径或目录（可选）")
-    exr2png_cmd.add_argument("-c", "--colormap", default="turbo",
-                             help="Colormap 名称：turbo, turbo_r, viridis, jet, plasma, inferno")
-    exr2png_cmd.add_argument("--vmin", type=float, help="Min depth value")
-    exr2png_cmd.add_argument("--vmax", type=float, help="Max depth value")
-    exr2png_cmd.add_argument("-i", "--invert", action="store_true",
-                             help="Invert depth (near=red, far=blue)")
-    exr2png_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
-    exr2png_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
+def _merge_render_config(args, config: dict):
+    if not config:
+        return args
 
-    return parser
+    def pick(value, default):
+        return value if value is not None else default
+
+    args.blend_file = pick(getattr(args, "blend_file", None), config.get("input"))
+    args.output = pick(getattr(args, "output", None), config.get("output"))
+    args.camera = pick(getattr(args, "camera", None), config.get("camera"))
+    args.width = pick(getattr(args, "width", None), config.get("width"))
+    args.height = pick(getattr(args, "height", None), config.get("height"))
+
+    if not args.export_animation and config.get("export_animation") is True:
+        args.export_animation = True
+    if args.frame_start is None:
+        args.frame_start = config.get("frame_start")
+    if args.frame_end is None:
+        args.frame_end = config.get("frame_end")
+    if args.frame_step == 1 and config.get("frame_step") not in (None, 1):
+        args.frame_step = config.get("frame_step")
+
+    if not args.skip_conversion and config.get("skip_conversion") is True:
+        args.skip_conversion = True
+    if args.colormap == "turbo" and config.get("colormap"):
+        args.colormap = config.get("colormap")
+    if args.blender is None:
+        args.blender = config.get("blender")
+
+    return args
 
 
 def main():
-    render_and_convert, exr2npy, exr2png = _load_modules()
-    parser = _build_parser()
+    render_and_convert, depth_convert = _load_modules()
+    import cli
+    parser = cli.build_main_parser()
     args = parser.parse_args()
 
     if args.command == "render":
+        config = None
+        if args.config:
+            config = _load_yaml_config(args.config)
+            args = _merge_render_config(args, config)
+        device = args.device or (config.get("device") if config else None)
+        compute_type = args.compute_type or (config.get("compute_type") if config else None)
+        if device:
+            os.environ["FG_DEVICE"] = str(device)
+        if compute_type:
+            os.environ["FG_COMPUTE_TYPE"] = str(compute_type)
         ok = render_and_convert.main_external(
             args.blend_file,
             args.output,
@@ -107,15 +107,15 @@ def main():
     if args.command == "exr2npy":
         input_path = os.path.expanduser(args.input)
         if args.batch or os.path.isdir(input_path):
-            exr2npy.batch_exr_to_npy(input_path, args.output, args.recursive)
+            depth_convert.batch_exr_to_npy(input_path, args.output, args.recursive)
         else:
-            exr2npy.exr_to_npy(args.input, args.output)
+            depth_convert.exr_to_npy(args.input, args.output)
         return
 
     if args.command == "exr2png":
         input_path = os.path.expanduser(args.input)
         if args.batch or os.path.isdir(input_path):
-            exr2png.batch_exr_to_png(
+            depth_convert.batch_exr_to_png(
                 input_path,
                 args.output,
                 args.colormap,
@@ -125,7 +125,7 @@ def main():
                 args.recursive,
             )
         else:
-            exr2png.exr_to_png(
+            depth_convert.exr_to_png(
                 args.input,
                 args.output,
                 args.colormap,

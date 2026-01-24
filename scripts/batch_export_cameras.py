@@ -36,7 +36,6 @@ def batch_export_cameras(blend_dir: str, output_base_dir: str | None = None,
                          camera_name: str | None = None,
                          render_width: int | None = None,
                          render_height: int | None = None,
-                         only_camera: bool = False,
                          export_animation: bool = False,
                          frame_start: int | None = None,
                          frame_end: int | None = None,
@@ -78,7 +77,7 @@ def batch_export_cameras(blend_dir: str, output_base_dir: str | None = None,
     # 获取脚本路径
     script_path = os.path.join(
         os.path.dirname(__file__),
-        'export_cam_and_render.py'
+        'export_camera.py'
     )
     
     if not os.path.exists(script_path):
@@ -117,8 +116,6 @@ def batch_export_cameras(blend_dir: str, output_base_dir: str | None = None,
             cmd.extend(['-w', str(render_width)])
         if render_height:
             cmd.extend(['--height', str(render_height)])
-        if only_camera:
-            cmd.append('--only-camera')
         if export_animation:
             cmd.append('--export-animation')
             if frame_start is not None:
@@ -174,9 +171,6 @@ if __name__ == "__main__":
   # 指定相机名称和渲染尺寸
   python batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender -c Camera -w 1920 --height 1080
   
-  # 只显示相机信息，不导出文件
-  python batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender --only-camera
-  
   # 导出动画中每一帧的相机参数
   python batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender --export-animation
         """
@@ -187,8 +181,6 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--camera", help="相机名称（默认：活动相机）")
     parser.add_argument("-w", "--width", type=int, help="渲染宽度（默认：使用场景设置）")
     parser.add_argument("--height", type=int, help="渲染高度（默认：使用场景设置）")
-    parser.add_argument("--only-camera", action="store_true",
-                       help="只显示相机信息，不导出文件")
     parser.add_argument("--export-animation", action="store_true",
                        help="导出动画中每一帧的相机参数")
     parser.add_argument("--frame-start", type=int, default=None,
@@ -205,13 +197,12 @@ if __name__ == "__main__":
         batch_export_cameras(
             args.blend_dir,
             args.output,
-            args.camera,
-            args.width,
-            args.height,
-            args.only_camera,
-            args.export_animation,
-            args.frame_start,
-            args.frame_end,
+        args.camera,
+        args.width,
+        args.height,
+        args.export_animation,
+        args.frame_start,
+        args.frame_end,
             args.frame_step
         )
     except Exception as e:
