@@ -7,6 +7,7 @@ import argparse
 import subprocess
 import glob
 import time
+import re
 import numpy as np
 
 # 尝试导入 bpy（在 Blender 环境中）
@@ -98,7 +99,7 @@ def format_time(seconds):
         return f"{hours}h {mins}m {secs:.0f}s"
 
 
-def print_progress_bar(current, total, frame_time=None, elapsed=None, prefix='渲染进度'):
+def print_progress_bar(current, total, frame_time=None, elapsed=None, prefix='渲染进度', use_cr=True):
     """打印进度条"""
     bar_length = 30
     progress = current / total if total > 0 else 0
@@ -116,9 +117,15 @@ def print_progress_bar(current, total, frame_time=None, elapsed=None, prefix='�
     if frame_time:
         frame_str = f" | {format_time(frame_time)}/帧"
 
-    # 在 Blender 环境中，\r 可能不工作，所以每 5 帧或最后一帧打印一次
-    if current == total or current % 5 == 0 or total <= 5:
-        print(f"{prefix}: |{bar}| {percent:.1f}% ({current}/{total}){frame_str}{eta_str}")
+    # 每帧都显示进度条
+    progress_line = f"{prefix}: |{bar}| {percent:.1f}% ({current}/{total}){frame_str}{eta_str}"
+    
+    if use_cr and current < total:
+        # 使用 \r 实现同一行更新（不换行）
+        print(f"\r{progress_line}", end='', flush=True)
+    else:
+        # 最后一帧或不需要 \r 时，正常打印并换行
+        print(f"\r{progress_line}")
         sys.stdout.flush()
 
 
@@ -554,6 +561,72 @@ def find_blender_executable():
     return None
 
 
+def convert_single_exr(exr_file: str, depth_exr_dir: str, colormap: str = 'turbo', silent: bool = True):
+    """
+    转换单个 EXR 文件为 NPY 和 PNG
+    
+    Args:
+        exr_file: EXR 文件路径
+        depth_exr_dir: depth/exr/ 目录路径（用于确定输出目录）
+        colormap: PNG 转换的 colormap
+        silent: 是否静默模式（减少输出）
+    
+    Returns:
+        bool: 转换是否成功
+    """
+    if exr_to_npy is None or exr_to_png is None:
+        if not silent:
+            print("警告: EXR 转换函数不可用，跳过转换")
+        return False
+    
+    exr_file = os.path.abspath(os.path.expanduser(exr_file))
+    
+    if not os.path.exists(exr_file):
+        if not silent:
+            print(f"警告: 文件不存在: {exr_file}")
+        return False
+    
+    try:
+        base_name = os.path.basename(exr_file)
+        base_name_no_ext = os.path.splitext(base_name)[0]
+        
+        # 创建输出目录
+        depth_npy_dir = os.path.join(os.path.dirname(depth_exr_dir), 'npy')
+        depth_vis_dir = os.path.join(os.path.dirname(depth_exr_dir), 'vis')
+        os.makedirs(depth_npy_dir, exist_ok=True)
+        os.makedirs(depth_vis_dir, exist_ok=True)
+        
+        # 在静默模式下抑制输出
+        import contextlib
+        import io
+        
+        if silent:
+            # 重定向 stdout 以抑制输出
+            with contextlib.redirect_stdout(io.StringIO()):
+                # 转换为 NPY
+                npy_path = os.path.join(depth_npy_dir, f"{base_name_no_ext}.npy")
+                exr_to_npy(exr_file, npy_path)
+                
+                # 转换为 PNG
+                png_path = os.path.join(depth_vis_dir, f"{base_name_no_ext}.png")
+                exr_to_png(exr_file, png_path, colormap=colormap)
+        else:
+            # 转换为 NPY
+            npy_path = os.path.join(depth_npy_dir, f"{base_name_no_ext}.npy")
+            exr_to_npy(exr_file, npy_path)
+            
+            # 转换为 PNG
+            png_path = os.path.join(depth_vis_dir, f"{base_name_no_ext}.png")
+            exr_to_png(exr_file, png_path, colormap=colormap)
+            print(f"  ✓ 转换完成: {base_name}")
+        
+        return True
+    except Exception as e:
+        if not silent:
+            print(f"  ✗ 转换失败 {os.path.basename(exr_file)}: {e}")
+        return False
+
+
 def convert_exr_files(depth_exr_dir: str, colormap: str = 'turbo'):
     """
     将 depth/exr/ 目录中的 EXR 文件转换为 NPY 和 PNG
@@ -683,6 +756,13 @@ def main_external(blend_file: str, output_dir: str,
         bufsize=1  # 行缓冲
     )
 
+    # 准备实时转换
+    depth_exr_dir = os.path.join(output_dir, 'depth', 'exr')
+    converted_files = set()  # 记录已转换的文件，避免重复转换
+    
+    # 正则表达式匹配 "Saved: '...exr'" 消息
+    exr_pattern = re.compile(r"Saved: '([^']+\.exr)'")
+    
     # 实时读取并显示输出
     while True:
         line = process.stdout.readline()
@@ -694,6 +774,27 @@ def main_external(blend_file: str, output_dir: str,
             if line:
                 print(line)
                 sys.stdout.flush()
+                
+                # 检测 EXR 文件保存消息，立即转换
+                if not skip_conversion:
+                    match = exr_pattern.search(line)
+                    if match:
+                        exr_file = match.group(1)
+                        # 转换为绝对路径
+                        exr_file = os.path.abspath(exr_file)
+                        
+                        # 检查是否已经转换过（避免重复转换）
+                        if exr_file not in converted_files:
+                            converted_files.add(exr_file)
+                            # 等待文件完全写入（小延迟确保文件已保存）
+                            time.sleep(0.1)
+                            
+                            # 立即转换该文件
+                            try:
+                                convert_single_exr(exr_file, depth_exr_dir, colormap, silent=True)
+                            except Exception as e:
+                                # 转换失败不影响渲染继续
+                                print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}", file=sys.stderr)
 
     returncode = process.wait()
 
@@ -701,10 +802,23 @@ def main_external(blend_file: str, output_dir: str,
         print(f"\nBlender 渲染失败 (退出码: {returncode})")
         return False
     
-    # 执行 EXR 转换
+    # 如果启用了转换，检查是否有遗漏的文件（作为备用）
     if not skip_conversion:
-        depth_exr_dir = os.path.join(output_dir, 'depth', 'exr')
-        convert_exr_files(depth_exr_dir, colormap)
+        print(f"\n检查是否有遗漏的 EXR 文件...")
+        remaining_files = glob.glob(os.path.join(depth_exr_dir, "*.exr"))
+        remaining_count = 0
+        for exr_file in remaining_files:
+            exr_file = os.path.abspath(exr_file)
+            if exr_file not in converted_files:
+                remaining_count += 1
+                try:
+                    convert_single_exr(exr_file, depth_exr_dir, colormap, silent=True)
+                except Exception as e:
+                    print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}", file=sys.stderr)
+        
+        if remaining_count > 0:
+            print(f"  转换了 {remaining_count} 个遗漏的文件")
+        print(f"  总共转换了 {len(converted_files)} 个文件")
     
     return True
 
