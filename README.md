@@ -34,14 +34,30 @@ python main.py render scene/input.blend -o scene/ --device GPU --compute-type CU
 - `device`: CPU / GPU
 - `compute_type`: CUDA / OPTIX / HIP / METAL / ONEAPI
 
+# 脚本总览（Python）
+- `main.py`：统一入口；解析子命令并调度渲染/转换；支持 YAML 配置与设备选择
+- `scripts/cli.py`：CLI 参数构建（render 与 main 共用）
+- `scripts/render_and_convert.py`：渲染 CLI 入口（调用 `scripts/pipeline.py`）
+- `scripts/render.py`：Blender 内部渲染核心（RGB/Depth EXR、节点/帧循环/进度、设备设置）
+- `scripts/export_camera.py`：导出 focal/pose（单帧/动画/批量子命令）
+- `scripts/pipeline.py`：渲染管线（外部 Blender 调度 + EXR 实时转换）
+- `scripts/config.py`：YAML 配置读取与合并
+- `scripts/depth_convert.py`：EXR 转 NPY/PNG（含批量与 exr2all）
+- `scripts/read_npy.py`：读取 NPY 并打印统计/可视化
+- `scripts/__init__.py`：scripts 包标记
+
+# 功能重复点（可优化）
+- CLI 参数定义在 `main.py` 与 `scripts/cli.py` 已统一为 `scripts/cli.py`，避免重复（当前无重复）
+- 渲染/相机导出分层：`render.py` + `export_camera.py` 被 `render_and_convert.py` 组合调用（属封装，不算逻辑重复）
+- 批量相机导出已合并进 `scripts/export_camera.py batch`（无重复）
+
 # 相机参数导出
 
 ## 功能
 从 Blender .blend 文件中提取相机参数并导出为 `focal.txt` 和 `pose.txt` 文件。
 
 ## 脚本说明
-- `scripts/export_camera.py`：单个 .blend 文件的相机参数导出脚本
-- `scripts/batch_export_cameras.py`：批量处理目录中所有 .blend 文件的脚本
+- `scripts/export_camera.py`：单个/批量 .blend 文件的相机参数导出脚本
 
 ## 使用方法
 
@@ -76,18 +92,18 @@ blender --background --python scripts/export_camera.py -- \
 ### 批量处理
 ```bash
 # 处理目录中所有 .blend 文件（输出到各自文件同目录）
-python3 scripts/batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender
+python3 scripts/export_camera.py batch /home/alex/projects/FoundationGeo/data/blender
 
 # 指定统一输出目录
-python3 scripts/batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender \
+python3 scripts/export_camera.py batch /home/alex/projects/FoundationGeo/data/blender \
   -o /home/alex/projects/FoundationGeo/data/blender/camera_params/
 
 # 指定相机名称和渲染尺寸
-python3 scripts/batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender \
+python3 scripts/export_camera.py batch /home/alex/projects/FoundationGeo/data/blender \
   -c Camera -w 1920 --height 1080
 
 # 批量导出动画中每一帧的相机参数
-python3 scripts/batch_export_cameras.py /home/alex/projects/FoundationGeo/data/blender \
+python3 scripts/export_camera.py batch /home/alex/projects/FoundationGeo/data/blender \
   --export-animation
 ```
 
