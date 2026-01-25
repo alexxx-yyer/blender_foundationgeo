@@ -12,6 +12,12 @@ try:
 except ImportError:
     IN_BLENDER = False
 
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
 
 def apply_render_device(device: str | None, compute_type: str | None = None,
                         gpu_ids: list[int] | None = None) -> None:
@@ -440,24 +446,26 @@ def render_frames(blend_path: str, output_dir: str,
         gpu_ids,
     )
 
-    if verbose:
-        print(f"  渲染引擎: {scene.render.engine}")
-        device_info = get_render_device_info()
-        if isinstance(device_info, dict):
-            print(f"  渲染设备: {device_info['device']}")
-            if device_info.get("gpu_devices"):
-                for gpu in device_info["gpu_devices"]:
-                    print(f"    - {gpu}")
-            if device_info.get("compute_type"):
-                print(f"  计算类型: {device_info['compute_type']}")
+    # 始终输出关键信息（不受 verbose 控制）
+    print(f"  渲染引擎: {scene.render.engine}")
+    device_info = get_render_device_info()
+    if isinstance(device_info, dict):
+        print(f"  渲染设备: {device_info['device']}")
+        if device_info.get("gpu_devices"):
+            for gpu in device_info["gpu_devices"]:
+                print(f"    - {gpu}")
+        if device_info.get("compute_type"):
+            print(f"  计算类型: {device_info['compute_type']}")
 
-        print(f"  分辨率: {render_width} x {render_height}")
-        print(f"  帧范围: {frame_start} - {frame_end} (步长: {frame_step})")
-        print(f"  总帧数: {total_frames}")
-        print(f"  输出目录: {output_dir}")
-        print(f"{'=' * 60}")
-        print("")
-        sys.stdout.flush()
+    print(f"  分辨率: {render_width} x {render_height}")
+    print(f"  帧范围: {frame_start} - {frame_end} (步长: {frame_step})")
+    print(f"  总帧数: {total_frames}")
+    print(f"  输出目录: {output_dir}")
+    print(f"    - RGB: {rgb_dir}")
+    print(f"    - Depth EXR: {depth_exr_dir}")
+    print(f"{'=' * 60}")
+    print("")
+    sys.stdout.flush()
 
     tree = _find_compositor_tree(scene)
     if tree and verbose:
@@ -479,6 +487,18 @@ def render_frames(blend_path: str, output_dir: str,
     frames_rendered = 0
     render_start_time = time.time()
     frame_times = []
+
+    # 使用 tqdm 显示进度
+    if HAS_TQDM:
+        pbar = tqdm(
+            total=total_frames,
+            desc="渲染进度",
+            unit="帧",
+            ncols=80,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        )
+    else:
+        pbar = None
 
     for frame in range(frame_start, frame_end + 1, frame_step):
         frame_start_time = time.time()
@@ -537,9 +557,23 @@ def render_frames(blend_path: str, output_dir: str,
         frames_rendered += 1
         frame_elapsed = time.time() - frame_start_time
         frame_times.append(frame_elapsed)
-        total_elapsed = time.time() - render_start_time
-        avg_frame_time = sum(frame_times) / len(frame_times) if frame_times else 0
-        print_progress_bar(frames_rendered, total_frames, avg_frame_time, total_elapsed)
+        
+        # 更新 tqdm 进度条
+        if pbar is not None:
+            pbar.update(1)
+            # 更新描述信息（显示平均帧时间）
+            if frame_times:
+                avg_frame_time = sum(frame_times) / len(frame_times)
+                pbar.set_postfix_str(f"{format_time(avg_frame_time)}/帧")
+        else:
+            # 回退到原来的进度条
+            total_elapsed = time.time() - render_start_time
+            avg_frame_time = sum(frame_times) / len(frame_times) if frame_times else 0
+            print_progress_bar(frames_rendered, total_frames, avg_frame_time, total_elapsed)
+
+    # 关闭进度条
+    if pbar is not None:
+        pbar.close()
 
     total_time = time.time() - render_start_time
     avg_time = total_time / frames_rendered if frames_rendered > 0 else 0

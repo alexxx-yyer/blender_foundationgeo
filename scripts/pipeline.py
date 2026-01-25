@@ -202,13 +202,14 @@ def main_external(blend_file: str, output_dir: str,
                 # 过滤 Blender 的详细渲染输出（以 "Fra:" 开头的行）
                 # 但保留错误、警告和重要信息
                 is_render_progress = line.startswith("Fra:")
+                is_saved_message = line.startswith("Saved:")
                 is_error = any(keyword in line for keyword in ["Error", "错误", "Warning", "警告", "Traceback", "Exception"])
-                is_important = any(keyword in line for keyword in ["Saved:", "渲染进度", "完成", "失败"])
+                is_important = any(keyword in line for keyword in ["渲染进度", "完成", "失败"])
                 
                 # 显示条件：
-                # 1. verbose 模式下显示所有内容
-                # 2. 非 verbose 模式下只显示错误/警告/重要信息，不显示渲染进度
-                should_print = verbose or (not is_render_progress and (is_error or is_important))
+                # 1. verbose 模式下显示所有内容（除了 Saved 消息）
+                # 2. 非 verbose 模式下只显示错误/警告/重要信息，不显示渲染进度和 Saved 消息
+                should_print = (verbose or (not is_render_progress and (is_error or is_important))) and not is_saved_message
                 
                 if should_print:
                     print(line)
