@@ -32,6 +32,9 @@ def main():
         device = args.device or (config.get("device") if config else None)
         compute_type = args.compute_type or (config.get("compute_type") if config else None)
         gpu_ids = getattr(args, "gpu_ids", None) or (config.get("gpu_ids") if config else None)
+        # 如果指定了 compute_type 但没有指定 device，自动设置为 GPU
+        if compute_type and not device:
+            device = "GPU"
         if device:
             os.environ["FG_DEVICE"] = str(device)
         if compute_type:

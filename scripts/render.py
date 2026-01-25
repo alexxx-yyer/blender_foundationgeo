@@ -33,12 +33,19 @@ def apply_render_device(device: str | None, compute_type: str | None = None,
         return
 
     if device == "GPU":
+        # 确保渲染引擎是 CYCLES（GPU 渲染需要 CYCLES）
+        if bpy.context.scene.render.engine != "CYCLES":
+            print(f"  警告: 当前渲染引擎是 {bpy.context.scene.render.engine}，GPU 渲染需要 CYCLES")
+            print(f"  正在切换到 CYCLES 引擎...")
+            bpy.context.scene.render.engine = "CYCLES"
+        
         bpy.context.scene.cycles.device = "GPU"
 
         try:
             cycles_prefs = bpy.context.preferences.addons.get("cycles")
             if not cycles_prefs:
                 print("  警告: 未找到 Cycles 插件，无法配置 GPU")
+                bpy.context.scene.cycles.device = "CPU"
                 return
 
             cprefs = cycles_prefs.preferences
@@ -70,6 +77,15 @@ def apply_render_device(device: str | None, compute_type: str | None = None,
             cprefs.compute_device_type = compute_type
             if hasattr(cprefs, "get_devices"):
                 cprefs.get_devices()
+
+            # 检查 CUDA_VISIBLE_DEVICES 环境变量
+            # 如果设置了 CUDA_VISIBLE_DEVICES，GPU 索引会重新映射为 0, 1, 2...
+            cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+            if cuda_visible:
+                # CUDA_VISIBLE_DEVICES 限制了可见的 GPU，Blender 看到的索引从 0 开始
+                # 所以无论 gpu_ids 是什么，都应该使用索引 0
+                print(f"  检测到 CUDA_VISIBLE_DEVICES={cuda_visible}，GPU 索引已重新映射")
+                gpu_ids = [0]  # 强制使用索引 0
 
             # 启用 GPU 设备
             enabled_gpus = []
