@@ -21,8 +21,8 @@ frame_step: 1
 skip_conversion: false
 colormap: turbo
 
-# Blender 可执行路径（可选）
-blender: null
+# Blender 可执行路径（可选，null 则自动查找）
+blender: ~/blender-4.2.17-linux-x64/blender
 
 # 渲染设备
 device: GPU

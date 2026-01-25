@@ -76,6 +76,11 @@ def render_and_export(blend_path: str, output_dir: str,
 def find_blender_executable():
     """查找 Blender 可执行文件"""
     possible_paths = [
+        # 用户目录下的常见安装位置
+        os.path.expanduser("~/blender-4.2.17-linux-x64/blender"),
+        os.path.expanduser("~/blender-4.2.0-linux-x64/blender"),
+        os.path.expanduser("~/blender-3.6.5-linux-x64/blender"),
+        # 系统路径
         "blender",
         "/usr/bin/blender",
         "/usr/local/bin/blender",

@@ -59,7 +59,13 @@ def exr_to_npy(exr_path: str, npy_path: str | None = None) -> np.ndarray:
         npy_path = os.path.splitext(exr_path)[0] + ".npy"
     else:
         npy_path = os.path.expanduser(npy_path)
+        # 如果是目录，在目录下创建同名文件
+        if os.path.isdir(npy_path) or npy_path.endswith(os.sep):
+            os.makedirs(npy_path, exist_ok=True)
+            basename = os.path.splitext(os.path.basename(exr_path))[0] + ".npy"
+            npy_path = os.path.join(npy_path, basename)
 
+    os.makedirs(os.path.dirname(npy_path) or ".", exist_ok=True)
     np.save(npy_path, img)
 
     print("转换完成!")
@@ -128,7 +134,13 @@ def exr_to_png(exr_path: str, png_path: str | None = None, colormap: str = "viri
         png_path = os.path.splitext(exr_path)[0] + ".png"
     else:
         png_path = os.path.expanduser(png_path)
+        # 如果是目录，在目录下创建同名文件
+        if os.path.isdir(png_path) or png_path.endswith(os.sep):
+            os.makedirs(png_path, exist_ok=True)
+            basename = os.path.splitext(os.path.basename(exr_path))[0] + ".png"
+            png_path = os.path.join(png_path, basename)
 
+    os.makedirs(os.path.dirname(png_path) or ".", exist_ok=True)
     plt.imsave(png_path, rgb)
 
     print("Done!")

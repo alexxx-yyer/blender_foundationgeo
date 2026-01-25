@@ -5,6 +5,24 @@ conda activate py312
 pip install numpy matplotlib pillow OpenEXR tqdm
 ```
 
+# Blender 安装
+
+推荐使用 Blender 4.2 LTS（兼容性最好）：
+```bash
+cd ~
+wget https://download.blender.org/release/Blender4.2/blender-4.2.17-linux-x64.tar.xz
+tar xf blender-4.2.17-linux-x64.tar.xz
+```
+
+**驱动兼容性：**
+| Blender 版本 | 最低 NVIDIA 驱动 |
+|-------------|-----------------|
+| 5.0 | 535+ |
+| 4.2 LTS | 470+ |
+| 3.6 LTS | 450+ |
+
+查看驱动版本：`nvidia-smi`
+
 # 使用方式
 ```bash
 # 统一入口（推荐）
