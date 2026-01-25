@@ -4,6 +4,11 @@
 import os
 import sys
 
+# 添加脚本目录到 Python 路径，以便在 Blender 环境中也能找到模块
+script_dir = os.path.dirname(os.path.abspath(__file__))
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
 import cli
 import pipeline
 

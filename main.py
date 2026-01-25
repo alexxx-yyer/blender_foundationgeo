@@ -31,10 +31,13 @@ def main():
             args = config_mod.merge_render_config(args, config)
         device = args.device or (config.get("device") if config else None)
         compute_type = args.compute_type or (config.get("compute_type") if config else None)
+        gpu_ids = getattr(args, "gpu_ids", None) or (config.get("gpu_ids") if config else None)
         if device:
             os.environ["FG_DEVICE"] = str(device)
         if compute_type:
             os.environ["FG_COMPUTE_TYPE"] = str(compute_type)
+        if gpu_ids:
+            os.environ["FG_GPU_IDS"] = str(gpu_ids)
         ok = pipeline.main_external(
             args.blend_file,
             args.output,
@@ -86,6 +89,27 @@ def main():
                 args.vmax,
                 args.invert,
             )
+        return
+
+    if args.command == "parallel":
+        import parallel_render
+        success = parallel_render.parallel_render(
+            args.blend_file,
+            args.output,
+            args.frame_start,
+            args.frame_end,
+            args.num_gpus,
+            args.frame_step,
+            args.compute_type,
+            args.camera,
+            args.width,
+            args.height,
+            args.skip_conversion,
+            args.colormap,
+            args.blender,
+        )
+        if not success:
+            sys.exit(1)
         return
 
     parser.error("未知命令")

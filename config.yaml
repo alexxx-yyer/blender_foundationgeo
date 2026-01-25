@@ -31,3 +31,8 @@ blender: null
 # compute_type: CUDA / OPTIX / HIP / METAL / ONEAPI
 device: GPU
 compute_type: CUDA
+
+# GPU 选择（可选）
+# gpu_ids: all          # 使用所有GPU（默认）
+# gpu_ids: "0,1,2,3,4,5,6,7"  # 使用指定的GPU
+gpu_ids: all

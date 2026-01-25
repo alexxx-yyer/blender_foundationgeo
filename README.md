@@ -2,7 +2,7 @@
 ```bash
 conda create -n py312 python=3.12
 conda activate py312
-pip install numpy matplotlib pillow OpenEXR
+pip install numpy matplotlib pillow OpenEXR tqdm
 ```
 
 # 使用方式
@@ -30,17 +30,100 @@ python main.py render scene/input.blend -o scene/ --device GPU --compute-type CU
 
 示例配置见 `config.yaml`。
 
-配置新增字段：
+配置字段：
 - `device`: CPU / GPU
 - `compute_type`: CUDA / OPTIX / HIP / METAL / ONEAPI
+- `gpu_ids`: all / "0,1,2,3,4,5,6,7"（指定使用的 GPU）
+
+# 多 GPU 渲染
+
+## 方案一：单进程多卡（多张 GPU 同时渲染同一帧）
+
+适合场景复杂、单帧渲染很慢的情况。Blender Cycles 会将渲染任务分配到所有启用的 GPU 上。
+
+```bash
+# 使用配置文件（gpu_ids: all 启用所有 GPU）
+python main.py render --config config.yaml input.blend
+
+# 命令行指定
+python main.py render input.blend -o scene/ \
+    --device GPU \
+    --compute-type CUDA \
+    --gpu-ids all \
+    --export-animation
+
+# 只使用前 4 张卡
+python main.py render input.blend -o scene/ \
+    --device GPU \
+    --compute-type CUDA \
+    --gpu-ids "0,1,2,3" \
+    --export-animation
+```
+
+配置文件示例 (`config.yaml`)：
+```yaml
+device: GPU
+compute_type: CUDA
+gpu_ids: all  # 或 "0,1,2,3,4,5,6,7"
+```
+
+## 方案二：多进程并行（每张 GPU 渲染不同帧）
+
+适合多帧动画渲染，理论上可达到单卡 N 倍的渲染速度（N = GPU 数量）。
+
+```bash
+# 8 张卡并行渲染 1-240 帧
+python main.py parallel input.blend -o scene/ \
+    --frame-start 1 --frame-end 240 \
+    --num-gpus 8 \
+    --compute-type CUDA
+
+# 4 张卡并行，使用 OPTIX
+python main.py parallel input.blend -o scene/ \
+    --frame-start 1 --frame-end 100 \
+    --num-gpus 4 \
+    --compute-type OPTIX
+
+# 完整参数示例
+python main.py parallel input.blend -o scene/ \
+    --frame-start 1 --frame-end 240 \
+    --num-gpus 8 \
+    --frame-step 1 \
+    --compute-type CUDA \
+    -c Camera \
+    -w 1920 --height 1080 \
+    --colormap turbo
+```
+
+帧自动分配示例（240 帧 / 8 卡）：
+```
+GPU 0: 帧 1-30   (30帧)
+GPU 1: 帧 31-60  (30帧)
+GPU 2: 帧 61-90  (30帧)
+GPU 3: 帧 91-120 (30帧)
+GPU 4: 帧 121-150 (30帧)
+GPU 5: 帧 151-180 (30帧)
+GPU 6: 帧 181-210 (30帧)
+GPU 7: 帧 211-240 (30帧)
+```
+
+## 方案选择建议
+
+| 场景 | 推荐方案 |
+|------|---------|
+| 单帧渲染慢（>1分钟/帧） | 方案一：单进程多卡 |
+| 多帧动画渲染 | 方案二：多进程并行 |
+| 帧数少但单帧复杂 | 方案一：单进程多卡 |
+| 帧数多且单帧较快 | 方案二：多进程并行 |
 
 # 脚本总览（Python）
 - `main.py`：统一入口；解析子命令并调度渲染/转换；支持 YAML 配置与设备选择
-- `scripts/cli.py`：CLI 参数构建（render 与 main 共用）
+- `scripts/cli.py`：CLI 参数构建（render/parallel 与 main 共用）
 - `scripts/render_and_convert.py`：渲染 CLI 入口（调用 `scripts/pipeline.py`）
-- `scripts/render.py`：Blender 内部渲染核心（RGB/Depth EXR、节点/帧循环/进度、设备设置）
+- `scripts/render.py`：Blender 内部渲染核心（RGB/Depth EXR、节点/帧循环/进度、多 GPU 设备设置）
 - `scripts/export_camera.py`：导出 focal/pose（单帧/动画/批量子命令）
 - `scripts/pipeline.py`：渲染管线（外部 Blender 调度 + EXR 实时转换）
+- `scripts/parallel_render.py`：多进程并行渲染（每张 GPU 渲染不同帧范围）
 - `scripts/config.py`：YAML 配置读取与合并
 - `scripts/depth_convert.py`：EXR 转 NPY/PNG（含批量与 exr2all）
 - `scripts/read_npy.py`：读取 NPY 并打印统计/可视化

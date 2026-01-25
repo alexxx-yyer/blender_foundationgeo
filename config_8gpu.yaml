@@ -1,0 +1,34 @@
+# 八卡渲染配置示例
+# 方案一：单进程多卡（8张GPU同时渲染同一帧）
+
+input: /path/to/your/scene.blend
+output: /path/to/output/scene
+
+# 相机（可选）
+camera: null
+
+# 分辨率（null 保持场景原始设置）
+width: null
+height: null
+
+# 动画导出
+export_animation: true
+frame_start: null
+frame_end: null
+frame_step: 1
+
+# 转换选项
+skip_conversion: false
+colormap: turbo
+
+# Blender 可执行路径（可选）
+blender: null
+
+# 渲染设备
+device: GPU
+compute_type: CUDA
+
+# GPU 选择
+# all: 使用所有8张GPU同时渲染（单进程多卡）
+# "0,1,2,3,4,5,6,7": 指定使用的GPU索引
+gpu_ids: all

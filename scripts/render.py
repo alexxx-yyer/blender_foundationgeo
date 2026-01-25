@@ -13,11 +13,13 @@ except ImportError:
     IN_BLENDER = False
 
 
-def apply_render_device(device: str | None, compute_type: str | None = None) -> None:
+def apply_render_device(device: str | None, compute_type: str | None = None,
+                        gpu_ids: list[int] | None = None) -> None:
     """
     根据配置设置 Blender 渲染设备
     device: CPU / GPU
     compute_type: CUDA / OPTIX / HIP / METAL / ONEAPI
+    gpu_ids: 指定要使用的GPU索引列表，None表示使用所有GPU
     """
     if not IN_BLENDER or not device:
         return
@@ -25,23 +27,83 @@ def apply_render_device(device: str | None, compute_type: str | None = None) -> 
     device = str(device).strip().upper()
     compute_type = str(compute_type).strip().upper() if compute_type else None
 
-    if compute_type:
-        try:
-            cycles_prefs = bpy.context.preferences.addons.get("cycles")
-            if cycles_prefs:
-                cycles_prefs.preferences.compute_device_type = compute_type
-                if hasattr(cycles_prefs.preferences, "get_devices"):
-                    cycles_prefs.preferences.get_devices()
-        except Exception:
-            pass
-
     if device == "CPU":
         bpy.context.scene.cycles.device = "CPU"
+        print("  渲染设备: CPU")
         return
 
     if device == "GPU":
         bpy.context.scene.cycles.device = "GPU"
-        return
+
+        try:
+            cycles_prefs = bpy.context.preferences.addons.get("cycles")
+            if not cycles_prefs:
+                print("  警告: 未找到 Cycles 插件，无法配置 GPU")
+                return
+
+            cprefs = cycles_prefs.preferences
+
+            # 如果没有指定 compute_type，尝试自动检测
+            if not compute_type:
+                # 按优先级尝试不同的计算类型（CUDA 优先，兼容性更好）
+                for try_type in ["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"]:
+                    try:
+                        cprefs.compute_device_type = try_type
+                        cprefs.get_devices()
+                        # 检查是否有可用设备
+                        has_device = any(
+                            d.type == try_type for d in cprefs.devices
+                        )
+                        if has_device:
+                            compute_type = try_type
+                            print(f"  自动检测计算类型: {compute_type}")
+                            break
+                    except Exception:
+                        continue
+
+            if not compute_type:
+                print("  警告: 未找到可用的 GPU 计算设备，将使用 CPU")
+                bpy.context.scene.cycles.device = "CPU"
+                return
+
+            # 设置计算类型并刷新设备列表
+            cprefs.compute_device_type = compute_type
+            if hasattr(cprefs, "get_devices"):
+                cprefs.get_devices()
+
+            # 启用 GPU 设备
+            enabled_gpus = []
+            gpu_index = 0
+
+            if hasattr(cprefs, "devices"):
+                for dev in cprefs.devices:
+                    if dev.type == compute_type:
+                        if gpu_ids is None:
+                            # 使用所有 GPU
+                            dev.use = True
+                            enabled_gpus.append(f"{dev.name}")
+                        else:
+                            # 只使用指定的 GPU
+                            dev.use = (gpu_index in gpu_ids)
+                            if dev.use:
+                                enabled_gpus.append(f"{dev.name}")
+                        gpu_index += 1
+                    elif dev.type == "CPU":
+                        # 禁用 CPU 参与 GPU 渲染
+                        dev.use = False
+
+            if enabled_gpus:
+                print(f"  计算类型: {compute_type}")
+                print(f"  启用 GPU ({len(enabled_gpus)}张):")
+                for gpu_name in enabled_gpus:
+                    print(f"    - {gpu_name}")
+            else:
+                print(f"  警告: 未启用任何 GPU 设备，将使用 CPU")
+                bpy.context.scene.cycles.device = "CPU"
+
+        except Exception as e:
+            print(f"  警告: GPU 配置失败: {e}，将使用 CPU")
+            bpy.context.scene.cycles.device = "CPU"
 
 
 def get_render_device_info():
@@ -331,9 +393,19 @@ def render_frames(blend_path: str, output_dir: str,
 
     total_frames = len(range(frame_start, frame_end + 1, frame_step))
 
+    # 解析 GPU IDs（支持 "0,1,2" 或 "all" 格式）
+    gpu_ids_str = os.environ.get("FG_GPU_IDS")
+    gpu_ids = None
+    if gpu_ids_str and gpu_ids_str.lower() != "all":
+        try:
+            gpu_ids = [int(x.strip()) for x in gpu_ids_str.split(",")]
+        except ValueError:
+            pass
+
     apply_render_device(
         os.environ.get("FG_DEVICE"),
         os.environ.get("FG_COMPUTE_TYPE"),
+        gpu_ids,
     )
 
     print(f"  渲染引擎: {scene.render.engine}")

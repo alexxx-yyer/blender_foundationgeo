@@ -21,6 +21,8 @@ def add_render_args(parser: argparse.ArgumentParser, include_config: bool = Fals
     parser.add_argument("--compute-type",
                         choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
                         help="GPU 计算类型")
+    parser.add_argument("--gpu-ids",
+                        help="指定使用的 GPU 索引，如 '0,1,2,3' 或 'all'（默认：all）")
     if include_config:
         parser.add_argument("--config", help="YAML 配置文件路径（仅 render 子命令）")
 
@@ -101,5 +103,25 @@ def build_main_parser():
                              help="Disable invert depth (near=red, far=blue)")
     exr2png_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
     exr2png_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
+
+    parallel = subparsers.add_parser(
+        "parallel",
+        help="多 GPU 并行渲染（每张卡渲染不同帧）",
+    )
+    parallel.add_argument("blend_file", help="输入的 .blend 文件路径")
+    parallel.add_argument("-o", "--output", required=True, help="输出目录")
+    parallel.add_argument("--frame-start", type=int, required=True, help="起始帧")
+    parallel.add_argument("--frame-end", type=int, required=True, help="结束帧")
+    parallel.add_argument("--num-gpus", type=int, default=8, help="使用的 GPU 数量（默认：8）")
+    parallel.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
+    parallel.add_argument("--compute-type", default="CUDA",
+                          choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
+                          help="GPU 计算类型（默认：CUDA）")
+    parallel.add_argument("-c", "--camera", help="相机名称")
+    parallel.add_argument("-w", "--width", type=int, help="渲染宽度")
+    parallel.add_argument("--height", type=int, help="渲染高度")
+    parallel.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换")
+    parallel.add_argument("--colormap", default="turbo", help="PNG colormap")
+    parallel.add_argument("--blender", help="Blender 可执行文件路径")
 
     return parser
