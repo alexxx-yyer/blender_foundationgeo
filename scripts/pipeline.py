@@ -125,7 +125,8 @@ def main_external(blend_file: str, output_dir: str,
                   frame_step: int = 1,
                   skip_conversion: bool = False,
                   colormap: str = "turbo",
-                  blender_exe: str | None = None):
+                  blender_exe: str | None = None,
+                  verbose: bool = False):
     """
     外部主函数：调用 Blender 进行渲染，然后执行转换
     """
@@ -140,9 +141,14 @@ def main_external(blend_file: str, output_dir: str,
         if blender_exe is None:
             raise RuntimeError("找不到 Blender 可执行文件，请使用 --blender 参数指定路径")
 
-    print(f"使用 Blender: {blender_exe}")
+    if verbose:
+        print(f"使用 Blender: {blender_exe}")
 
     script_path = os.path.join(os.path.dirname(__file__), "render_and_convert.py")
+
+    # 通过环境变量传递 verbose 标志
+    env = os.environ.copy()
+    env["FG_VERBOSE"] = "1" if verbose else "0"
 
     cmd = [
         blender_exe,
@@ -168,7 +174,8 @@ def main_external(blend_file: str, output_dir: str,
         if frame_step != 1:
             cmd.extend(["--frame-step", str(frame_step)])
 
-    print("\n开始 Blender 渲染...\n")
+    if verbose:
+        print("\n开始 Blender 渲染...\n")
     sys.stdout.flush()
 
     process = subprocess.Popen(
@@ -177,6 +184,7 @@ def main_external(blend_file: str, output_dir: str,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        env=env,
     )
 
     depth_exr_dir = os.path.join(output_dir, "depth", "exr")
@@ -191,8 +199,20 @@ def main_external(blend_file: str, output_dir: str,
         if line:
             line = line.rstrip()
             if line:
-                print(line)
-                sys.stdout.flush()
+                # 过滤 Blender 的详细渲染输出（以 "Fra:" 开头的行）
+                # 但保留错误、警告和重要信息
+                is_render_progress = line.startswith("Fra:")
+                is_error = any(keyword in line for keyword in ["Error", "错误", "Warning", "警告", "Traceback", "Exception"])
+                is_important = any(keyword in line for keyword in ["Saved:", "渲染进度", "完成", "失败"])
+                
+                # 显示条件：
+                # 1. verbose 模式下显示所有内容
+                # 2. 非 verbose 模式下只显示错误/警告/重要信息，不显示渲染进度
+                should_print = verbose or (not is_render_progress and (is_error or is_important))
+                
+                if should_print:
+                    print(line)
+                    sys.stdout.flush()
 
                 if not skip_conversion:
                     match = exr_pattern.search(line)
@@ -207,6 +227,7 @@ def main_external(blend_file: str, output_dir: str,
                             try:
                                 convert_single_exr(exr_file, depth_exr_dir, colormap, silent=True)
                             except Exception as e:
+                                # 转换错误始终显示
                                 print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}",
                                       file=sys.stderr)
 
@@ -217,7 +238,8 @@ def main_external(blend_file: str, output_dir: str,
         return False
 
     if not skip_conversion:
-        print("\n检查是否有遗漏的 EXR 文件...")
+        if verbose:
+            print("\n检查是否有遗漏的 EXR 文件...")
         remaining_files = glob.glob(os.path.join(depth_exr_dir, "*.exr"))
         remaining_count = 0
         for exr_file in remaining_files:
@@ -227,11 +249,13 @@ def main_external(blend_file: str, output_dir: str,
                 try:
                     convert_single_exr(exr_file, depth_exr_dir, colormap, silent=True)
                 except Exception as e:
-                    print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}",
-                          file=sys.stderr)
+                    if verbose:
+                        print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}",
+                              file=sys.stderr)
 
-        if remaining_count > 0:
-            print(f"  转换了 {remaining_count} 个遗漏的文件")
-        print(f"  总共转换了 {len(converted_files)} 个文件")
+        if verbose:
+            if remaining_count > 0:
+                print(f"  转换了 {remaining_count} 个遗漏的文件")
+            print(f"  总共转换了 {len(converted_files)} 个文件")
 
     return True

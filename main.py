@@ -54,6 +54,7 @@ def main():
             args.skip_conversion,
             args.colormap,
             args.blender,
+            getattr(args, "verbose", False),
         )
         if not ok:
             sys.exit(1)
