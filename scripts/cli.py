@@ -127,5 +127,7 @@ def build_main_parser():
     parallel.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换")
     parallel.add_argument("--colormap", default="turbo", help="PNG colormap")
     parallel.add_argument("--blender", help="Blender 可执行文件路径")
+    parallel.add_argument("--no-compositor", action="store_true",
+                          help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
 
     return parser

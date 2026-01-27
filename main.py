@@ -112,6 +112,7 @@ def main():
             args.skip_conversion,
             args.colormap,
             args.blender,
+            use_compositor=not getattr(args, "no_compositor", False),
         )
         if not success:
             sys.exit(1)

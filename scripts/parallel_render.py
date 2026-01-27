@@ -93,6 +93,7 @@ def render_worker(args: dict) -> dict:
     height = args.get("height")
     skip_conversion = args.get("skip_conversion", False)
     colormap = args.get("colormap", "turbo")
+    use_compositor = args.get("use_compositor", True)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.join(script_dir, "render_and_convert.py")
@@ -129,6 +130,8 @@ def render_worker(args: dict) -> dict:
         cmd.append("--skip-conversion")
     if colormap:
         cmd.extend(["--colormap", colormap])
+    if not use_compositor:
+        cmd.append("--no-compositor")
 
     print(f"[GPU {gpu_id}] 开始渲染帧 {frame_start}-{frame_end}")
     sys.stdout.flush()
@@ -234,6 +237,7 @@ def parallel_render(
     skip_conversion: bool = False,
     colormap: str = "turbo",
     blender_exe: str = None,
+    use_compositor: bool = True,
 ):
     """多 GPU 并行渲染"""
     if blender_exe is None:
@@ -298,6 +302,7 @@ def parallel_render(
             "height": height,
             "skip_conversion": skip_conversion,
             "colormap": colormap,
+            "use_compositor": use_compositor,
         })
 
     results = []
@@ -371,6 +376,8 @@ def main():
     parser.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换")
     parser.add_argument("--colormap", default="turbo", help="PNG colormap")
     parser.add_argument("--blender", help="Blender 可执行文件路径")
+    parser.add_argument("--no-compositor", action="store_true",
+                        help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
 
     args = parser.parse_args()
 
@@ -388,6 +395,7 @@ def main():
         args.skip_conversion,
         args.colormap,
         args.blender,
+        use_compositor=not args.no_compositor,
     )
 
     sys.exit(0 if success else 1)
