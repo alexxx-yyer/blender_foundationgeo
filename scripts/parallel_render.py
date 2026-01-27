@@ -2,6 +2,7 @@
 """多进程并行渲染：每张 GPU 渲染不同的帧范围"""
 
 import argparse
+import json
 import math
 import os
 import subprocess
@@ -13,6 +14,39 @@ try:
     HAS_TQDM = True
 except ImportError:
     HAS_TQDM = False
+
+
+def get_blend_info(blend_file: str, blender_exe: str) -> dict:
+    """从 .blend 文件中读取渲染信息（分辨率、采样数等）"""
+    script = '''
+import bpy
+import json
+import sys
+
+scene = bpy.context.scene
+info = {
+    "width": scene.render.resolution_x,
+    "height": scene.render.resolution_y,
+    "samples": getattr(scene.cycles, "samples", None) if hasattr(scene, "cycles") else None,
+    "engine": scene.render.engine,
+    "frame_start": scene.frame_start,
+    "frame_end": scene.frame_end,
+}
+print("BLEND_INFO:" + json.dumps(info))
+'''
+    try:
+        result = subprocess.run(
+            [blender_exe, "--background", blend_file, "--python-expr", script],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        for line in result.stdout.split("\n"):
+            if line.startswith("BLEND_INFO:"):
+                return json.loads(line[len("BLEND_INFO:"):])
+    except Exception:
+        pass
+    return {}
 
 
 def find_blender_executable():
@@ -66,8 +100,11 @@ def render_worker(args: dict) -> dict:
     env = os.environ.copy()
     env["FG_DEVICE"] = "GPU"
     env["FG_COMPUTE_TYPE"] = compute_type
-    env["FG_GPU_IDS"] = str(gpu_id)
+    # 设置 CUDA_VISIBLE_DEVICES 限制进程只能看到指定的 GPU
+    # 这样初始化也会在该 GPU 上进行，而不是都在 GPU 0 上
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+    # 由于 CUDA_VISIBLE_DEVICES 限制后，可见的 GPU 索引变成 0
+    env["FG_GPU_IDS"] = "0"
 
     cmd = [
         blender_exe,
@@ -90,19 +127,46 @@ def render_worker(args: dict) -> dict:
         cmd.extend(["--height", str(height)])
     if skip_conversion:
         cmd.append("--skip-conversion")
+    if colormap:
+        cmd.extend(["--colormap", colormap])
 
     print(f"[GPU {gpu_id}] 开始渲染帧 {frame_start}-{frame_end}")
     sys.stdout.flush()
 
     try:
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
+            bufsize=1,
         )
 
-        if result.returncode == 0:
+        stderr_output = []
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                line = line.rstrip()
+                if line:
+                    # 只显示进度条，过滤掉 Saved: 等其他信息
+                    is_progress = line.startswith("渲染进度")
+                    is_error = any(kw in line for kw in ["Error", "错误", "Warning", "警告", "Traceback", "Exception"])
+                    
+                    if is_progress:
+                        # 进度条单独一行显示
+                        print(f"[GPU {gpu_id}] {line}")
+                        sys.stdout.flush()
+                    elif is_error:
+                        print(f"[GPU {gpu_id}] {line}")
+                        sys.stdout.flush()
+                        stderr_output.append(line)
+
+        returncode = process.wait()
+
+        if returncode == 0:
             print(f"[GPU {gpu_id}] 完成帧 {frame_start}-{frame_end}")
             return {
                 "gpu_id": gpu_id,
@@ -111,13 +175,14 @@ def render_worker(args: dict) -> dict:
                 "success": True,
             }
         else:
-            print(f"[GPU {gpu_id}] 失败: {result.stderr[:200]}")
+            error_msg = "\n".join(stderr_output[-5:]) if stderr_output else "未知错误"
+            print(f"[GPU {gpu_id}] 失败: {error_msg[:200]}")
             return {
                 "gpu_id": gpu_id,
                 "frame_start": frame_start,
                 "frame_end": frame_end,
                 "success": False,
-                "error": result.stderr,
+                "error": error_msg,
             }
     except Exception as e:
         print(f"[GPU {gpu_id}] 异常: {e}")
@@ -175,6 +240,8 @@ def parallel_render(
         blender_exe = find_blender_executable()
         if blender_exe is None:
             raise RuntimeError("找不到 Blender，请使用 --blender 参数指定路径")
+    else:
+        blender_exe = os.path.expanduser(blender_exe)
 
     blend_file = os.path.expanduser(blend_file)
     output_dir = os.path.expanduser(output_dir)
@@ -184,6 +251,16 @@ def parallel_render(
 
     os.makedirs(output_dir, exist_ok=True)
 
+    # 获取 .blend 文件信息
+    print("正在读取场景信息...")
+    blend_info = get_blend_info(blend_file, blender_exe)
+    
+    # 使用命令行参数覆盖或使用 .blend 文件中的值
+    render_width = width if width else blend_info.get("width", "未知")
+    render_height = height if height else blend_info.get("height", "未知")
+    samples = blend_info.get("samples", "未知")
+    engine = blend_info.get("engine", "未知")
+
     distributions = distribute_frames(frame_start, frame_end, num_gpus, frame_step)
 
     print(f"\n{'=' * 60}")
@@ -192,8 +269,11 @@ def parallel_render(
     print(f"  Blender: {blender_exe}")
     print(f"  输入文件: {blend_file}")
     print(f"  输出目录: {output_dir}")
+    print(f"  渲染引擎: {engine}")
+    print(f"  分辨率: {render_width} x {render_height}")
+    print(f"  采样数: {samples}")
     print(f"  帧范围: {frame_start} - {frame_end} (步长: {frame_step})")
-    print(f"  GPU 数量: {len(distributions)}")
+    print(f"  GPU 数量: {num_gpus}")
     print(f"  计算类型: {compute_type}")
     print(f"\n帧分配:")
     for dist in distributions:
@@ -224,31 +304,10 @@ def parallel_render(
     with ProcessPoolExecutor(max_workers=len(tasks)) as executor:
         futures = {executor.submit(render_worker, task): task for task in tasks}
 
-        if HAS_TQDM:
-            # 使用 tqdm 显示进度
-            pbar = tqdm(
-                as_completed(futures),
-                total=len(futures),
-                desc="渲染进度",
-                unit="GPU",
-                ncols=80,
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
-            )
-            for future in pbar:
-                result = future.result()
-                results.append(result)
-                # 更新进度条描述
-                status = "✓" if result["success"] else "✗"
-                pbar.set_postfix_str(f"GPU{result['gpu_id']} {status}")
-            pbar.close()
-        else:
-            # 无 tqdm 时的简单进度显示
-            completed = 0
-            for future in as_completed(futures):
-                result = future.result()
-                results.append(result)
-                completed += 1
-                print(f"进度: {completed}/{len(futures)} GPU 完成")
+        # 等待所有任务完成，子进程会实时输出进度
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
 
     success_count = sum(1 for r in results if r["success"])
     fail_count = len(results) - success_count
@@ -263,6 +322,22 @@ def parallel_render(
             if not r["success"]:
                 print(f"    - GPU {r['gpu_id']}: 帧 {r['frame_start']}-{r['frame_end']}")
     print(f"{'=' * 60}")
+
+    # EXR 转换
+    if not skip_conversion and success_count > 0:
+        depth_exr_dir = os.path.join(output_dir, "depth", "exr")
+        if os.path.isdir(depth_exr_dir):
+            print(f"\n{'=' * 60}")
+            print("开始 EXR 转换...")
+            print(f"{'=' * 60}")
+            try:
+                import depth_convert
+                depth_convert.convert_exr_files(depth_exr_dir, colormap)
+                print(f"{'=' * 60}")
+                print("EXR 转换完成!")
+                print(f"{'=' * 60}")
+            except Exception as e:
+                print(f"EXR 转换失败: {e}")
 
     return all(r["success"] for r in results)
 
