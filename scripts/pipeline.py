@@ -34,7 +34,8 @@ def render_and_export(blend_path: str, output_dir: str,
                       export_animation: bool = False,
                       frame_start: int | None = None,
                       frame_end: int | None = None,
-                      frame_step: int = 1):
+                      frame_step: int = 1,
+                      use_compositor: bool = True):
     """在 Blender 中渲染 RGB 和 Depth，并导出相机参数"""
     if not IN_BLENDER:
         raise RuntimeError("此函数必须在 Blender 环境中运行")
@@ -62,6 +63,7 @@ def render_and_export(blend_path: str, output_dir: str,
         frame_end,
         frame_step,
         on_frame_rendered=_on_frame_rendered,
+        use_compositor=use_compositor,
     )
 
     focal_dir = os.path.join(output_dir, "focal")
@@ -126,7 +128,8 @@ def main_external(blend_file: str, output_dir: str,
                   skip_conversion: bool = False,
                   colormap: str = "turbo",
                   blender_exe: str | None = None,
-                  verbose: bool = False):
+                  verbose: bool = False,
+                  use_compositor: bool = True):
     """
     外部主函数：调用 Blender 进行渲染，然后执行转换
     """
@@ -141,14 +144,47 @@ def main_external(blend_file: str, output_dir: str,
         if blender_exe is None:
             raise RuntimeError("找不到 Blender 可执行文件，请使用 --blender 参数指定路径")
 
-    if verbose:
-        print(f"使用 Blender: {blender_exe}")
+    # 获取设备和计算类型信息
+    device = os.environ.get("FG_DEVICE", "CPU")
+    compute_type = os.environ.get("FG_COMPUTE_TYPE", "NONE")
+    gpu_ids = os.environ.get("FG_GPU_IDS", "")
+
+    # 输出渲染配置信息
+    print("\n" + "=" * 50)
+    print("渲染配置")
+    print("=" * 50)
+    print(f"  Blender:      {blender_exe}")
+    print(f"  输入文件:     {blend_file}")
+    print(f"  输出目录:     {output_dir}")
+    print(f"  设备:         {device}")
+    print(f"  计算类型:     {compute_type}")
+    if gpu_ids:
+        print(f"  GPU IDs:      {gpu_ids}")
+    if camera_name:
+        print(f"  相机:         {camera_name}")
+    if render_width or render_height:
+        w = render_width if render_width else "默认"
+        h = render_height if render_height else "默认"
+        print(f"  分辨率:       {w} x {h}")
+    if export_animation:
+        start = frame_start if frame_start is not None else "场景默认"
+        end = frame_end if frame_end is not None else "场景默认"
+        print(f"  动画模式:     是")
+        print(f"  帧范围:       {start} - {end}")
+        print(f"  帧步长:       {frame_step}")
+    else:
+        print(f"  动画模式:     否 (仅当前帧)")
+    print(f"  跳过转换:     {'是' if skip_conversion else '否'}")
+    if not skip_conversion:
+        print(f"  深度图色表:   {colormap}")
+    print("=" * 50 + "\n")
 
     script_path = os.path.join(os.path.dirname(__file__), "render_and_convert.py")
 
-    # 通过环境变量传递 verbose 标志
+    # 通过环境变量传递 verbose 和 use_compositor 标志
     env = os.environ.copy()
     env["FG_VERBOSE"] = "1" if verbose else "0"
+    env["FG_USE_COMPOSITOR"] = "1" if use_compositor else "0"
 
     cmd = [
         blender_exe,
@@ -174,8 +210,7 @@ def main_external(blend_file: str, output_dir: str,
         if frame_step != 1:
             cmd.extend(["--frame-step", str(frame_step)])
 
-    if verbose:
-        print("\n开始 Blender 渲染...\n")
+    print("开始渲染...")
     sys.stdout.flush()
 
     process = subprocess.Popen(

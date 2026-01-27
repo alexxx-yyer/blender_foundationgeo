@@ -25,6 +25,8 @@ def add_render_args(parser: argparse.ArgumentParser, include_config: bool = Fals
                         help="指定使用的 GPU 索引，如 '0,1,2,3' 或 'all'（默认：all）")
     parser.add_argument("--verbose", action="store_true",
                         help="显示详细的 Blender 输出（默认：仅显示进度条）")
+    parser.add_argument("--no-compositor", action="store_true",
+                        help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
     if include_config:
         parser.add_argument("--config", help="YAML 配置文件路径（仅 render 子命令）")
 

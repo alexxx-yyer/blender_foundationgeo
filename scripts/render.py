@@ -359,6 +359,290 @@ def _set_exr_format(format_obj):
         format_obj.file_format = "OPEN_EXR_MULTILAYER"
 
 
+def _create_simple_compositor(scene, rgb_dir, depth_exr_dir):
+    """创建简单的合成器节点树（不依赖用户预先配置）"""
+    # 启用合成器
+    scene.use_nodes = True
+    scene.render.use_compositing = True
+    tree = scene.node_tree
+    
+    # 清空现有节点
+    for node in tree.nodes:
+        tree.nodes.remove(node)
+    
+    # 创建 Render Layers 节点
+    rl_node = tree.nodes.new(type="CompositorNodeRLayers")
+    rl_node.location = (0, 0)
+    
+    # 创建 RGB 文件输出节点
+    rgb_output = tree.nodes.new(type="CompositorNodeOutputFile")
+    rgb_output.location = (400, 100)
+    rgb_output.base_path = rgb_dir + os.sep
+    rgb_output.format.file_format = "PNG"
+    rgb_output.format.color_mode = "RGB"
+    rgb_output.format.color_depth = "8"
+    
+    # 创建 Depth 文件输出节点
+    depth_output = tree.nodes.new(type="CompositorNodeOutputFile")
+    depth_output.location = (400, -100)
+    depth_output.base_path = depth_exr_dir + os.sep
+    depth_output.format.file_format = "OPEN_EXR"
+    depth_output.format.color_mode = "RGB"  # EXR 不支持 BW，使用 RGB
+    depth_output.format.color_depth = "32"
+    
+    # 连接节点
+    # RGB: Render Layers -> RGB Output
+    tree.links.new(rl_node.outputs["Image"], rgb_output.inputs[0])
+    
+    # Depth: Render Layers -> Depth Output
+    tree.links.new(rl_node.outputs["Depth"], depth_output.inputs[0])
+    
+    return rgb_output, depth_output
+
+
+def render_frames_direct(blend_path: str, output_dir: str,
+                         camera_name: str | None = None,
+                         render_width: int | None = None,
+                         render_height: int | None = None,
+                         export_animation: bool = False,
+                         frame_start: int | None = None,
+                         frame_end: int | None = None,
+                         frame_step: int = 1,
+                         on_frame_rendered=None,
+                         use_compositor: bool = False):
+    """
+    在 Blender 中渲染 RGB 和 Depth EXR（自动创建合成器节点，不依赖用户预先配置）
+    
+    Args:
+        use_compositor: 如果为 True，则使用用户预先配置的合成器节点
+    """
+    if not IN_BLENDER:
+        raise RuntimeError("此函数必须在 Blender 环境中运行")
+
+    blend_path = os.path.expanduser(blend_path)
+    output_dir = os.path.abspath(os.path.expanduser(output_dir))
+
+    # 检查是否启用详细输出
+    verbose = os.environ.get("FG_VERBOSE", "0") == "1"
+
+    if verbose:
+        print(f"\n{'=' * 60}")
+        print("渲染任务（直接模式，自动创建合成器节点）")
+        print(f"{'=' * 60}")
+        print(f"  Blender 版本: {bpy.app.version_string}")
+        sys.stdout.flush()
+
+        print(f"  加载文件: {blend_path}")
+        sys.stdout.flush()
+    bpy.ops.wm.open_mainfile(filepath=blend_path)
+
+    scene = bpy.context.scene
+    view_layer = scene.view_layers[0]
+
+    if render_width is None:
+        render_width = scene.render.resolution_x
+    if render_height is None:
+        render_height = scene.render.resolution_y
+
+    camera_obj = _select_camera(scene, camera_name)
+    camera_data = camera_obj.data
+
+    rgb_dir = os.path.join(output_dir, "rgb")
+    depth_exr_dir = os.path.join(output_dir, "depth", "exr")
+
+    os.makedirs(rgb_dir, exist_ok=True)
+    os.makedirs(depth_exr_dir, exist_ok=True)
+
+    # 启用深度通道
+    view_layer.use_pass_z = True
+
+    if export_animation:
+        if frame_start is None:
+            frame_start = scene.frame_start
+        if frame_end is None:
+            frame_end = scene.frame_end
+    else:
+        frame_start = scene.frame_current
+        frame_end = scene.frame_current
+
+    total_frames = len(range(frame_start, frame_end + 1, frame_step))
+
+    # 解析 GPU IDs（支持 "0,1,2" 或 "all" 格式）
+    gpu_ids_str = os.environ.get("FG_GPU_IDS")
+    gpu_ids = None
+    if gpu_ids_str and gpu_ids_str.lower() != "all":
+        try:
+            gpu_ids = [int(x.strip()) for x in gpu_ids_str.split(",")]
+        except ValueError:
+            pass
+
+    apply_render_device(
+        os.environ.get("FG_DEVICE"),
+        os.environ.get("FG_COMPUTE_TYPE"),
+        gpu_ids,
+    )
+
+    # 始终输出关键信息（不受 verbose 控制）
+    print(f"  渲染引擎: {scene.render.engine}")
+    device_info = get_render_device_info()
+    if isinstance(device_info, dict):
+        print(f"  渲染设备: {device_info['device']}")
+        if device_info.get("gpu_devices"):
+            for gpu in device_info["gpu_devices"]:
+                print(f"    - {gpu}")
+        if device_info.get("compute_type"):
+            print(f"  计算类型: {device_info['compute_type']}")
+    print(f"  分辨率: {render_width} x {render_height}")
+    print(f"  帧范围: {frame_start} - {frame_end} (步长: {frame_step})")
+    print(f"  总帧数: {total_frames}")
+    print(f"  输出目录: {output_dir}")
+    print(f"    - RGB: {rgb_dir}")
+    print(f"    - Depth EXR: {depth_exr_dir}")
+    print(f"{'=' * 60}")
+    print("")
+    sys.stdout.flush()
+
+    # 如果不使用用户预先配置的合成器，则自动创建简单的合成器节点
+    if not use_compositor:
+        if verbose:
+            print("  自动创建合成器节点...")
+        rgb_file_output, depth_file_output = _create_simple_compositor(scene, rgb_dir, depth_exr_dir)
+        if verbose:
+            print("✓ 合成器节点已创建")
+    else:
+        # 使用用户预先配置的合成器节点
+        tree = _find_compositor_tree(scene)
+        if not tree:
+            raise RuntimeError("错误: 无法访问合成器节点树！")
+        rgb_file_output, depth_file_output = _find_output_nodes(tree)
+        if not rgb_file_output:
+            raise RuntimeError("错误: 在合成器中没有找到 RGB 文件输出节点！")
+        if not depth_file_output:
+            raise RuntimeError("错误: 在合成器中没有找到 Depth 文件输出节点！")
+        if verbose:
+            print("✓ 使用用户预先配置的合成器节点")
+
+    frames_rendered = 0
+    render_start_time = time.time()
+    frame_times = []
+
+    # 使用 tqdm 显示进度
+    if HAS_TQDM:
+        pbar = tqdm(
+            total=total_frames,
+            desc="渲染进度",
+            unit="帧",
+            ncols=80,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        )
+    else:
+        pbar = None
+
+    for frame in range(frame_start, frame_end + 1, frame_step):
+        frame_start_time = time.time()
+        frame_str = f"{frame:06d}"
+
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+
+        # 设置文件输出路径
+        if rgb_file_output:
+            _set_file_output_path(rgb_file_output, rgb_dir, frame_str)
+            rgb_file_output.format.file_format = "PNG"
+
+        if depth_file_output:
+            _set_file_output_path(depth_file_output, depth_exr_dir, frame_str)
+            _set_exr_format(depth_file_output.format)
+            depth_file_output.format.color_depth = "32"
+            try:
+                depth_file_output.format.color_mode = "BW"
+            except (AttributeError, TypeError):
+                try:
+                    depth_file_output.format.color_mode = "RGB"
+                except Exception:
+                    pass
+
+        # 渲染
+        bpy.ops.render.render(write_still=False)
+
+        # 重命名文件（确保文件名格式正确）
+        rgb_files = glob.glob(os.path.join(rgb_dir, f"{frame_str}*.png"))
+        if rgb_files:
+            rgb_file = max(rgb_files, key=os.path.getctime)
+            target_rgb = os.path.join(rgb_dir, f"{frame_str}.png")
+            if rgb_file != target_rgb:
+                if os.path.exists(target_rgb):
+                    os.remove(target_rgb)
+                os.rename(rgb_file, target_rgb)
+
+        depth_files = glob.glob(os.path.join(depth_exr_dir, f"{frame_str}*.exr"))
+        if depth_files:
+            depth_file = max(depth_files, key=os.path.getctime)
+            target_depth = os.path.join(depth_exr_dir, f"{frame_str}.exr")
+            if depth_file != target_depth:
+                if os.path.exists(target_depth):
+                    os.remove(target_depth)
+                os.rename(depth_file, target_depth)
+
+        if on_frame_rendered:
+            on_frame_rendered(
+                frame=frame,
+                scene=scene,
+                camera_obj=camera_obj,
+                camera_data=camera_data,
+                render_width=render_width,
+                render_height=render_height,
+                output_dir=output_dir,
+            )
+
+        frames_rendered += 1
+        frame_elapsed = time.time() - frame_start_time
+        frame_times.append(frame_elapsed)
+        
+        # 更新 tqdm 进度条
+        if pbar is not None:
+            pbar.update(1)
+            # 更新描述信息（显示平均帧时间）
+            if frame_times:
+                avg_frame_time = sum(frame_times) / len(frame_times)
+                pbar.set_postfix_str(f"{format_time(avg_frame_time)}/帧")
+        else:
+            # 回退到原来的进度条
+            total_elapsed = time.time() - render_start_time
+            avg_frame_time = sum(frame_times) / len(frame_times) if frame_times else 0
+            print_progress_bar(frames_rendered, total_frames, avg_frame_time, total_elapsed)
+
+    # 关闭进度条
+    if pbar is not None:
+        pbar.close()
+
+    total_time = time.time() - render_start_time
+    avg_time = total_time / frames_rendered if frames_rendered > 0 else 0
+
+    if verbose:
+        print(f"\n\n{'=' * 60}")
+        print("渲染完成!")
+        print(f"{'=' * 60}")
+        print(f"  总帧数: {frames_rendered}")
+        print(f"  总用时: {format_time(total_time)}")
+        print(f"  平均每帧: {format_time(avg_time)}")
+        print("  输出目录:")
+        print(f"    - RGB: {rgb_dir}")
+        print(f"    - Depth EXR: {depth_exr_dir}")
+        print(f"{'=' * 60}")
+
+    return {
+        "rgb_dir": rgb_dir,
+        "depth_exr_dir": depth_exr_dir,
+        "camera": camera_obj,
+        "render_width": render_width,
+        "render_height": render_height,
+        "frame_start": frame_start,
+        "frame_end": frame_end,
+        "frame_step": frame_step,
+    }
+
+
 def render_frames(blend_path: str, output_dir: str,
                   camera_name: str | None = None,
                   render_width: int | None = None,
@@ -367,10 +651,20 @@ def render_frames(blend_path: str, output_dir: str,
                   frame_start: int | None = None,
                   frame_end: int | None = None,
                   frame_step: int = 1,
-                  on_frame_rendered=None):
+                  on_frame_rendered=None,
+                  use_compositor: bool = True):
     """
-    在 Blender 中渲染 RGB 和 Depth EXR
+    在 Blender 中渲染 RGB 和 Depth EXR（使用合成器节点）
+    
+    Args:
+        use_compositor: 如果为 False，则使用直接模式（不依赖合成器节点）
     """
+    # 如果不需要合成器，使用直接模式
+    if not use_compositor:
+        return render_frames_direct(
+            blend_path, output_dir, camera_name, render_width, render_height,
+            export_animation, frame_start, frame_end, frame_step, on_frame_rendered, use_compositor=False
+        )
     if not IN_BLENDER:
         raise RuntimeError("此函数必须在 Blender 环境中运行")
 

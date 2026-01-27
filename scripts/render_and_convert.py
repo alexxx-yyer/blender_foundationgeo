@@ -25,6 +25,11 @@ if __name__ == "__main__":
         os.environ["FG_DEVICE"] = str(args.device)
     if args.compute_type:
         os.environ["FG_COMPUTE_TYPE"] = str(args.compute_type)
+    
+    # 从环境变量或参数中获取 use_compositor
+    use_compositor = os.environ.get("FG_USE_COMPOSITOR", "1") == "1"
+    if hasattr(args, "no_compositor") and args.no_compositor:
+        use_compositor = False
 
     if pipeline.IN_BLENDER:
         try:
@@ -38,6 +43,7 @@ if __name__ == "__main__":
                 args.frame_start,
                 args.frame_end,
                 args.frame_step,
+                use_compositor=use_compositor,
             )
         except Exception as e:
             print(f"错误: {e}", file=sys.stderr)

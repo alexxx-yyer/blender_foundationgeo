@@ -116,10 +116,14 @@ def exr_to_png(exr_path: str, png_path: str | None = None, colormap: str = "viri
     else:
         depth = channel_data[sorted(channels)[0]]
 
+    # 过滤 Blender 的无穷大深度值（背景/天空区域）
+    INF_THRESHOLD = 1e9
+    valid_mask = depth < INF_THRESHOLD
+
     if vmin is None:
-        vmin = np.min(depth)
+        vmin = np.min(depth[valid_mask]) if np.any(valid_mask) else np.min(depth)
     if vmax is None:
-        vmax = np.max(depth)
+        vmax = np.max(depth[valid_mask]) if np.any(valid_mask) else np.max(depth)
 
     depth_normalized = (depth - vmin) / (vmax - vmin + 1e-8)
     depth_normalized = np.clip(depth_normalized, 0, 1)

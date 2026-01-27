@@ -55,6 +55,7 @@ def main():
             args.colormap,
             args.blender,
             getattr(args, "verbose", False),
+            use_compositor=not getattr(args, "no_compositor", False),
         )
         if not ok:
             sys.exit(1)
