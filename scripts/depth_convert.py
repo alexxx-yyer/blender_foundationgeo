@@ -6,6 +6,8 @@ import contextlib
 import glob
 import io
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import cpu_count
 
 import numpy as np
 import OpenEXR
@@ -313,8 +315,29 @@ def convert_single_exr(exr_file: str, depth_exr_dir: str, colormap: str = "turbo
         return False
 
 
-def convert_exr_files(depth_exr_dir: str, colormap: str = "turbo") -> None:
-    """将 depth/exr/ 目录中的 EXR 文件转换为 NPY 和 PNG"""
+def _convert_single_exr_worker(args: tuple) -> tuple:
+    """多进程 worker：转换单个 EXR 文件"""
+    exr_file, depth_npy_dir, depth_vis_dir, colormap = args
+    try:
+        base_name = os.path.basename(exr_file)
+        base_name_no_ext = os.path.splitext(base_name)[0]
+
+        # 静默转换
+        with contextlib.redirect_stdout(io.StringIO()):
+            npy_path = os.path.join(depth_npy_dir, f"{base_name_no_ext}.npy")
+            exr_to_npy(exr_file, npy_path)
+
+            png_path = os.path.join(depth_vis_dir, f"{base_name_no_ext}.png")
+            exr_to_png(exr_file, png_path, colormap=colormap)
+
+        return (True, base_name, None)
+    except Exception as e:
+        return (False, os.path.basename(exr_file), str(e))
+
+
+def convert_exr_files(depth_exr_dir: str, colormap: str = "turbo", 
+                      num_workers: int = None) -> None:
+    """将 depth/exr/ 目录中的 EXR 文件转换为 NPY 和 PNG（多进程）"""
     depth_exr_dir = os.path.expanduser(depth_exr_dir)
 
     if not os.path.isdir(depth_exr_dir):
@@ -327,31 +350,39 @@ def convert_exr_files(depth_exr_dir: str, colormap: str = "turbo") -> None:
         print(f"在目录 {depth_exr_dir} 中未找到 EXR 文件")
         return
 
-    print(f"\n找到 {len(exr_files)} 个 EXR 文件，开始转换...")
+    if num_workers is None:
+        num_workers = max(1, cpu_count() - 1)  # 留一个核心给系统
+
+    print(f"\n找到 {len(exr_files)} 个 EXR 文件，使用 {num_workers} 个进程转换...")
 
     depth_npy_dir = os.path.join(os.path.dirname(depth_exr_dir), "npy")
     depth_vis_dir = os.path.join(os.path.dirname(depth_exr_dir), "vis")
     os.makedirs(depth_npy_dir, exist_ok=True)
     os.makedirs(depth_vis_dir, exist_ok=True)
 
+    # 构建任务参数
+    tasks = [(exr_file, depth_npy_dir, depth_vis_dir, colormap) for exr_file in exr_files]
+
     success_count = 0
     fail_count = 0
 
-    for exr_file in exr_files:
-        try:
-            base_name = os.path.basename(exr_file)
-            base_name_no_ext = os.path.splitext(base_name)[0]
-
-            npy_path = os.path.join(depth_npy_dir, f"{base_name_no_ext}.npy")
-            exr_to_npy(exr_file, npy_path)
-
-            png_path = os.path.join(depth_vis_dir, f"{base_name_no_ext}.png")
-            exr_to_png(exr_file, png_path, colormap=colormap)
-
-            success_count += 1
-        except Exception as e:
-            print(f"  ✗ 转换失败 {os.path.basename(exr_file)}: {e}")
-            fail_count += 1
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = {executor.submit(_convert_single_exr_worker, task): task for task in tasks}
+        
+        completed = 0
+        total = len(futures)
+        for future in as_completed(futures):
+            success, filename, error = future.result()
+            completed += 1
+            if success:
+                success_count += 1
+            else:
+                fail_count += 1
+                print(f"  ✗ 转换失败 {filename}: {error}")
+            
+            # 打印进度
+            if completed % 100 == 0 or completed == total:
+                print(f"  进度: {completed}/{total} ({100*completed/total:.1f}%)")
 
     print("\n转换完成!")
     print(f"  成功: {success_count}")

@@ -92,16 +92,6 @@ def apply_render_device(device: str | None, compute_type: str | None = None,
             if hasattr(cprefs, "get_devices"):
                 cprefs.get_devices()
 
-            # 检查 CUDA_VISIBLE_DEVICES 环境变量
-            # 如果设置了 CUDA_VISIBLE_DEVICES，GPU 索引会重新映射为 0, 1, 2...
-            cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-            if cuda_visible:
-                # CUDA_VISIBLE_DEVICES 限制了可见的 GPU，Blender 看到的索引从 0 开始
-                # 所以无论 gpu_ids 是什么，都应该使用索引 0
-                if verbose:
-                    print(f"  检测到 CUDA_VISIBLE_DEVICES={cuda_visible}，GPU 索引已重新映射")
-                gpu_ids = [0]  # 强制使用索引 0
-
             # 启用 GPU 设备
             enabled_gpus = []
             gpu_index = 0
