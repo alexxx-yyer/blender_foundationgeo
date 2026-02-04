@@ -198,14 +198,31 @@ def render_worker(args: dict) -> dict:
         }
 
 
-def distribute_frames(frame_start: int, frame_end: int, num_gpus: int, frame_step: int = 1):
-    """将帧范围分配给多个 GPU"""
+def distribute_frames(frame_start: int, frame_end: int, num_gpus: int, frame_step: int = 1,
+                      gpu_ids: list = None):
+    """将帧范围分配给多个 GPU
+    
+    Args:
+        frame_start: 起始帧
+        frame_end: 结束帧
+        num_gpus: GPU 数量（当 gpu_ids 为 None 时使用）
+        frame_step: 帧步长
+        gpu_ids: 指定使用的 GPU 索引列表，如 [3, 4, 5, 6, 7]
+    """
     frames = list(range(frame_start, frame_end + 1, frame_step))
     total_frames = len(frames)
-    frames_per_gpu = math.ceil(total_frames / num_gpus)
+    
+    # 确定要使用的 GPU 列表
+    if gpu_ids is not None:
+        actual_gpus = gpu_ids
+    else:
+        actual_gpus = list(range(num_gpus))
+    
+    actual_num_gpus = len(actual_gpus)
+    frames_per_gpu = math.ceil(total_frames / actual_num_gpus)
 
     distributions = []
-    for i in range(num_gpus):
+    for i, gpu_id in enumerate(actual_gpus):
         start_idx = i * frames_per_gpu
         end_idx = min(start_idx + frames_per_gpu, total_frames)
 
@@ -215,12 +232,23 @@ def distribute_frames(frame_start: int, frame_end: int, num_gpus: int, frame_ste
         gpu_frames = frames[start_idx:end_idx]
         if gpu_frames:
             distributions.append({
-                "gpu_id": i,
+                "gpu_id": gpu_id,
                 "frame_start": gpu_frames[0],
                 "frame_end": gpu_frames[-1],
             })
 
     return distributions
+
+
+def get_visible_gpus():
+    """从 CUDA_VISIBLE_DEVICES 环境变量获取可见的 GPU 列表"""
+    cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if not cuda_visible:
+        return None
+    try:
+        return [int(x.strip()) for x in cuda_visible.split(",") if x.strip()]
+    except ValueError:
+        return None
 
 
 def parallel_render(
@@ -229,6 +257,7 @@ def parallel_render(
     frame_start: int,
     frame_end: int,
     num_gpus: int = 8,
+    gpu_ids: list = None,
     frame_step: int = 1,
     compute_type: str = "CUDA",
     camera: str = None,
@@ -239,7 +268,21 @@ def parallel_render(
     blender_exe: str = None,
     use_compositor: bool = True,
 ):
-    """多 GPU 并行渲染"""
+    """多 GPU 并行渲染
+    
+    GPU 选择优先级：
+    1. --gpu-ids 参数（最高优先级）
+    2. CUDA_VISIBLE_DEVICES 环境变量
+    3. --num-gpus 参数（使用 GPU 0, 1, ..., num_gpus-1）
+    """
+    # 确定要使用的 GPU 列表
+    if gpu_ids is None:
+        # 尝试从环境变量获取
+        env_gpus = get_visible_gpus()
+        if env_gpus is not None:
+            gpu_ids = env_gpus
+            print(f"从 CUDA_VISIBLE_DEVICES 检测到 GPU: {gpu_ids}")
+    
     if blender_exe is None:
         blender_exe = find_blender_executable()
         if blender_exe is None:
@@ -265,7 +308,10 @@ def parallel_render(
     samples = blend_info.get("samples", "未知")
     engine = blend_info.get("engine", "未知")
 
-    distributions = distribute_frames(frame_start, frame_end, num_gpus, frame_step)
+    distributions = distribute_frames(frame_start, frame_end, num_gpus, frame_step, gpu_ids)
+    
+    # 获取实际使用的 GPU 列表
+    actual_gpus = [d["gpu_id"] for d in distributions]
 
     print(f"\n{'=' * 60}")
     print("多 GPU 并行渲染")
@@ -277,7 +323,7 @@ def parallel_render(
     print(f"  分辨率: {render_width} x {render_height}")
     print(f"  采样数: {samples}")
     print(f"  帧范围: {frame_start} - {frame_end} (步长: {frame_step})")
-    print(f"  GPU 数量: {num_gpus}")
+    print(f"  GPU: {','.join(map(str, actual_gpus))} (共 {len(actual_gpus)} 张)")
     print(f"  计算类型: {compute_type}")
     print(f"\n帧分配:")
     for dist in distributions:
@@ -356,6 +402,12 @@ def main():
   # 8 卡并行渲染 1-240 帧:
   python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 240 --num-gpus 8
 
+  # 指定使用 GPU 3,4,5,6,7:
+  python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 240 --gpu-ids 3,4,5,6,7
+
+  # 使用环境变量指定 GPU:
+  CUDA_VISIBLE_DEVICES=3,4,5,6,7 python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 240
+
   # 4 卡并行，指定 OPTIX:
   python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 100 --num-gpus 4 --compute-type OPTIX
         """,
@@ -365,7 +417,10 @@ def main():
     parser.add_argument("-o", "--output", required=True, help="输出目录")
     parser.add_argument("--frame-start", type=int, required=True, help="起始帧")
     parser.add_argument("--frame-end", type=int, required=True, help="结束帧")
-    parser.add_argument("--num-gpus", type=int, default=8, help="使用的 GPU 数量（默认：8）")
+    parser.add_argument("--num-gpus", type=int, default=None,
+                        help="使用的 GPU 数量（与 --gpu-ids 二选一，默认：自动检测或 8）")
+    parser.add_argument("--gpu-ids",
+                        help="指定使用的 GPU 索引，如 '3,4,5,6,7'（也可用 CUDA_VISIBLE_DEVICES 环境变量）")
     parser.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
     parser.add_argument("--compute-type", default="CUDA",
                         choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
@@ -380,21 +435,28 @@ def main():
                         help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
 
     args = parser.parse_args()
+    
+    # 解析 gpu_ids
+    gpu_ids = None
+    if args.gpu_ids:
+        gpu_ids = [int(x.strip()) for x in args.gpu_ids.split(",")]
+    num_gpus = args.num_gpus if args.num_gpus is not None else (len(gpu_ids) if gpu_ids else 8)
 
     success = parallel_render(
         args.blend_file,
         args.output,
         args.frame_start,
         args.frame_end,
-        args.num_gpus,
-        args.frame_step,
-        args.compute_type,
-        args.camera,
-        args.width,
-        args.height,
-        args.skip_conversion,
-        args.colormap,
-        args.blender,
+        num_gpus=num_gpus,
+        gpu_ids=gpu_ids,
+        frame_step=args.frame_step,
+        compute_type=args.compute_type,
+        camera=args.camera,
+        width=args.width,
+        height=args.height,
+        skip_conversion=args.skip_conversion,
+        colormap=args.colormap,
+        blender_exe=args.blender,
         use_compositor=not args.no_compositor,
     )
 

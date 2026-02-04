@@ -98,20 +98,27 @@ def main():
 
     if args.command == "parallel":
         import parallel_render
+        # 解析 gpu_ids
+        gpu_ids = None
+        if args.gpu_ids:
+            gpu_ids = [int(x.strip()) for x in args.gpu_ids.split(",")]
+        num_gpus = args.num_gpus if args.num_gpus is not None else (len(gpu_ids) if gpu_ids else 8)
+        
         success = parallel_render.parallel_render(
             args.blend_file,
             args.output,
             args.frame_start,
             args.frame_end,
-            args.num_gpus,
-            args.frame_step,
-            args.compute_type,
-            args.camera,
-            args.width,
-            args.height,
-            args.skip_conversion,
-            args.colormap,
-            args.blender,
+            num_gpus=num_gpus,
+            gpu_ids=gpu_ids,
+            frame_step=args.frame_step,
+            compute_type=args.compute_type,
+            camera=args.camera,
+            width=args.width,
+            height=args.height,
+            skip_conversion=args.skip_conversion,
+            colormap=args.colormap,
+            blender_exe=args.blender,
             use_compositor=not getattr(args, "no_compositor", False),
         )
         if not success:

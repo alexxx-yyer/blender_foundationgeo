@@ -117,6 +117,12 @@ def load_depth_npy(npy_path: Path) -> np.ndarray:
     return d
 
 
+def depth_exists(scene_rendered: Path, frame_id: str) -> bool:
+    """只检查深度文件是否存在，不读取。用于扫描阶段提速。"""
+    depth_dir = scene_rendered / "depth"
+    return (depth_dir / "exr" / f"{frame_id}.exr").exists() or (depth_dir / "npy" / f"{frame_id}.npy").exists()
+
+
 def load_depth(scene_rendered: Path, frame_id: str) -> Optional[np.ndarray]:
     """优先 exr（需装 OpenEXR），无则用 npy。"""
     depth_dir = scene_rendered / "depth"
@@ -233,7 +239,7 @@ def main(rendered_dir: str = RENDERED_DIR, output_dir: str = OUTPUT_DIR, num_wor
                 continue
             if not (scene_rendered / "pose" / f"{frame_id}.txt").exists():
                 continue
-            if load_depth(scene_rendered, frame_id) is None:
+            if not depth_exists(scene_rendered, frame_id):
                 continue
             all_tasks.append((scene_rendered, output_dir / scene_name, frame_id, rgb_path))
 

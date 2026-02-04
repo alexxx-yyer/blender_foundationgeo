@@ -116,7 +116,9 @@ def build_main_parser():
     parallel.add_argument("-o", "--output", required=True, help="输出目录")
     parallel.add_argument("--frame-start", type=int, required=True, help="起始帧")
     parallel.add_argument("--frame-end", type=int, required=True, help="结束帧")
-    parallel.add_argument("--num-gpus", type=int, default=8, help="使用的 GPU 数量（默认：8）")
+    parallel.add_argument("--num-gpus", type=int, default=None,
+                          help="使用的 GPU 数量（与 --gpu-ids 二选一，默认：8）")
+    parallel.add_argument("--gpu-ids", help="指定使用的 GPU 索引，如 '3,4,5,6,7'（与 --num-gpus 二选一）")
     parallel.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
     parallel.add_argument("--compute-type", default="CUDA",
                           choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],

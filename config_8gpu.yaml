@@ -31,4 +31,4 @@ compute_type: CUDA
 # GPU 选择
 # all: 使用所有8张GPU同时渲染（单进程多卡）
 # "0,1,2,3,4,5,6,7": 指定使用的GPU索引
-gpu_ids: all
+gpu_ids: 3,4,5,6,7
