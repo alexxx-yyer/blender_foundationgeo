@@ -1,5 +1,6 @@
 # 数据目录和输出目录
 data/
+dataset/
 scene/
 output/
 *.zip

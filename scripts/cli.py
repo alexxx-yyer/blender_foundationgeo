@@ -23,6 +23,10 @@ def add_render_args(parser: argparse.ArgumentParser, include_config: bool = Fals
                         help="GPU 计算类型")
     parser.add_argument("--gpu-ids",
                         help="指定使用的 GPU 索引，如 '0,1,2,3' 或 'all'（默认：all）")
+    parser.add_argument("--verbose", action="store_true",
+                        help="显示详细的 Blender 输出（默认：仅显示进度条）")
+    parser.add_argument("--no-compositor", action="store_true",
+                        help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
     if include_config:
         parser.add_argument("--config", help="YAML 配置文件路径（仅 render 子命令）")
 
@@ -112,7 +116,9 @@ def build_main_parser():
     parallel.add_argument("-o", "--output", required=True, help="输出目录")
     parallel.add_argument("--frame-start", type=int, required=True, help="起始帧")
     parallel.add_argument("--frame-end", type=int, required=True, help="结束帧")
-    parallel.add_argument("--num-gpus", type=int, default=8, help="使用的 GPU 数量（默认：8）")
+    parallel.add_argument("--num-gpus", type=int, default=None,
+                          help="使用的 GPU 数量（与 --gpu-ids 二选一，默认：8）")
+    parallel.add_argument("--gpu-ids", help="指定使用的 GPU 索引，如 '3,4,5,6,7'（与 --num-gpus 二选一）")
     parallel.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
     parallel.add_argument("--compute-type", default="CUDA",
                           choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
@@ -123,5 +129,7 @@ def build_main_parser():
     parallel.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换")
     parallel.add_argument("--colormap", default="turbo", help="PNG colormap")
     parallel.add_argument("--blender", help="Blender 可执行文件路径")
+    parallel.add_argument("--no-compositor", action="store_true",
+                          help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
 
     return parser

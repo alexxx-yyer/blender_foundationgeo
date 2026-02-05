@@ -34,7 +34,8 @@ def render_and_export(blend_path: str, output_dir: str,
                       export_animation: bool = False,
                       frame_start: int | None = None,
                       frame_end: int | None = None,
-                      frame_step: int = 1):
+                      frame_step: int = 1,
+                      use_compositor: bool = True):
     """在 Blender 中渲染 RGB 和 Depth，并导出相机参数"""
     if not IN_BLENDER:
         raise RuntimeError("此函数必须在 Blender 环境中运行")
@@ -62,6 +63,7 @@ def render_and_export(blend_path: str, output_dir: str,
         frame_end,
         frame_step,
         on_frame_rendered=_on_frame_rendered,
+        use_compositor=use_compositor,
     )
 
     focal_dir = os.path.join(output_dir, "focal")
@@ -76,6 +78,11 @@ def render_and_export(blend_path: str, output_dir: str,
 def find_blender_executable():
     """查找 Blender 可执行文件"""
     possible_paths = [
+        # 用户目录下的常见安装位置
+        os.path.expanduser("~/blender-4.2.17-linux-x64/blender"),
+        os.path.expanduser("~/blender-4.2.0-linux-x64/blender"),
+        os.path.expanduser("~/blender-3.6.5-linux-x64/blender"),
+        # 系统路径
         "blender",
         "/usr/bin/blender",
         "/usr/local/bin/blender",
@@ -120,7 +127,9 @@ def main_external(blend_file: str, output_dir: str,
                   frame_step: int = 1,
                   skip_conversion: bool = False,
                   colormap: str = "turbo",
-                  blender_exe: str | None = None):
+                  blender_exe: str | None = None,
+                  verbose: bool = False,
+                  use_compositor: bool = True):
     """
     外部主函数：调用 Blender 进行渲染，然后执行转换
     """
@@ -135,9 +144,47 @@ def main_external(blend_file: str, output_dir: str,
         if blender_exe is None:
             raise RuntimeError("找不到 Blender 可执行文件，请使用 --blender 参数指定路径")
 
-    print(f"使用 Blender: {blender_exe}")
+    # 获取设备和计算类型信息
+    device = os.environ.get("FG_DEVICE", "CPU")
+    compute_type = os.environ.get("FG_COMPUTE_TYPE", "NONE")
+    gpu_ids = os.environ.get("FG_GPU_IDS", "")
+
+    # 输出渲染配置信息
+    print("\n" + "=" * 50)
+    print("渲染配置")
+    print("=" * 50)
+    print(f"  Blender:      {blender_exe}")
+    print(f"  输入文件:     {blend_file}")
+    print(f"  输出目录:     {output_dir}")
+    print(f"  设备:         {device}")
+    print(f"  计算类型:     {compute_type}")
+    if gpu_ids:
+        print(f"  GPU IDs:      {gpu_ids}")
+    if camera_name:
+        print(f"  相机:         {camera_name}")
+    if render_width or render_height:
+        w = render_width if render_width else "默认"
+        h = render_height if render_height else "默认"
+        print(f"  分辨率:       {w} x {h}")
+    if export_animation:
+        start = frame_start if frame_start is not None else "场景默认"
+        end = frame_end if frame_end is not None else "场景默认"
+        print(f"  动画模式:     是")
+        print(f"  帧范围:       {start} - {end}")
+        print(f"  帧步长:       {frame_step}")
+    else:
+        print(f"  动画模式:     否 (仅当前帧)")
+    print(f"  跳过转换:     {'是' if skip_conversion else '否'}")
+    if not skip_conversion:
+        print(f"  深度图色表:   {colormap}")
+    print("=" * 50 + "\n")
 
     script_path = os.path.join(os.path.dirname(__file__), "render_and_convert.py")
+
+    # 通过环境变量传递 verbose 和 use_compositor 标志
+    env = os.environ.copy()
+    env["FG_VERBOSE"] = "1" if verbose else "0"
+    env["FG_USE_COMPOSITOR"] = "1" if use_compositor else "0"
 
     cmd = [
         blender_exe,
@@ -163,7 +210,7 @@ def main_external(blend_file: str, output_dir: str,
         if frame_step != 1:
             cmd.extend(["--frame-step", str(frame_step)])
 
-    print("\n开始 Blender 渲染...\n")
+    print("开始渲染...")
     sys.stdout.flush()
 
     process = subprocess.Popen(
@@ -172,6 +219,7 @@ def main_external(blend_file: str, output_dir: str,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        env=env,
     )
 
     depth_exr_dir = os.path.join(output_dir, "depth", "exr")
@@ -186,8 +234,21 @@ def main_external(blend_file: str, output_dir: str,
         if line:
             line = line.rstrip()
             if line:
-                print(line)
-                sys.stdout.flush()
+                # 过滤 Blender 的详细渲染输出（以 "Fra:" 开头的行）
+                # 但保留错误、警告和重要信息
+                is_render_progress = line.startswith("Fra:")
+                is_saved_message = line.startswith("Saved:")
+                is_error = any(keyword in line for keyword in ["Error", "错误", "Warning", "警告", "Traceback", "Exception"])
+                is_important = any(keyword in line for keyword in ["渲染进度", "完成", "失败"])
+                
+                # 显示条件：
+                # 1. verbose 模式下显示所有内容（除了 Saved 消息）
+                # 2. 非 verbose 模式下只显示错误/警告/重要信息，不显示渲染进度和 Saved 消息
+                should_print = (verbose or (not is_render_progress and (is_error or is_important))) and not is_saved_message
+                
+                if should_print:
+                    print(line)
+                    sys.stdout.flush()
 
                 if not skip_conversion:
                     match = exr_pattern.search(line)
@@ -202,6 +263,7 @@ def main_external(blend_file: str, output_dir: str,
                             try:
                                 convert_single_exr(exr_file, depth_exr_dir, colormap, silent=True)
                             except Exception as e:
+                                # 转换错误始终显示
                                 print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}",
                                       file=sys.stderr)
 
@@ -212,7 +274,8 @@ def main_external(blend_file: str, output_dir: str,
         return False
 
     if not skip_conversion:
-        print("\n检查是否有遗漏的 EXR 文件...")
+        if verbose:
+            print("\n检查是否有遗漏的 EXR 文件...")
         remaining_files = glob.glob(os.path.join(depth_exr_dir, "*.exr"))
         remaining_count = 0
         for exr_file in remaining_files:
@@ -222,11 +285,13 @@ def main_external(blend_file: str, output_dir: str,
                 try:
                     convert_single_exr(exr_file, depth_exr_dir, colormap, silent=True)
                 except Exception as e:
-                    print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}",
-                          file=sys.stderr)
+                    if verbose:
+                        print(f"  警告: 转换失败 {os.path.basename(exr_file)}: {e}",
+                              file=sys.stderr)
 
-        if remaining_count > 0:
-            print(f"  转换了 {remaining_count} 个遗漏的文件")
-        print(f"  总共转换了 {len(converted_files)} 个文件")
+        if verbose:
+            if remaining_count > 0:
+                print(f"  转换了 {remaining_count} 个遗漏的文件")
+            print(f"  总共转换了 {len(converted_files)} 个文件")
 
     return True
