@@ -5,6 +5,24 @@ conda activate py312
 pip install numpy matplotlib pillow OpenEXR tqdm
 ```
 
+# Blender 安装
+
+推荐使用 Blender 4.2 LTS（兼容性最好）：
+```bash
+cd ~
+wget https://download.blender.org/release/Blender4.2/blender-4.2.17-linux-x64.tar.xz
+tar xf blender-4.2.17-linux-x64.tar.xz
+```
+
+**驱动兼容性：**
+| Blender 版本 | 最低 NVIDIA 驱动 |
+|-------------|-----------------|
+| 5.0 | 535+ |
+| 4.2 LTS | 470+ |
+| 3.6 LTS | 450+ |
+
+查看驱动版本：`nvidia-smi`
+
 # 使用方式
 ```bash
 # 统一入口（推荐）
@@ -34,6 +52,31 @@ python main.py render scene/input.blend -o scene/ --device GPU --compute-type CU
 - `device`: CPU / GPU
 - `compute_type`: CUDA / OPTIX / HIP / METAL / ONEAPI
 - `gpu_ids`: all / "0,1,2,3,4,5,6,7"（指定使用的 GPU）
+
+# 自动合成器模式（--no-compositor）
+
+默认情况下，渲染脚本需要 .blend 文件中预先配置好合成器节点（File Output 节点用于输出 RGB 和 Depth）。
+
+使用 `--no-compositor` 参数可以跳过这个要求，脚本会自动创建合成器节点：
+
+```bash
+# 对没有预配置合成器的 .blend 文件进行渲染
+python main.py render input.blend -o scene/ \
+    --export-animation \
+    --device GPU \
+    --compute-type CUDA \
+    --no-compositor
+```
+
+**适用场景：**
+- .blend 文件没有配置合成器节点
+- 快速测试渲染，不想手动配置合成器
+- 批量处理多个不同来源的 .blend 文件
+
+**自动创建的节点：**
+- Render Layers 节点
+- RGB File Output（PNG 格式）
+- Depth File Output（EXR 32-bit 格式）
 
 # 多 GPU 渲染
 
