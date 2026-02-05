@@ -94,6 +94,7 @@ def render_worker(args: dict) -> dict:
     skip_conversion = args.get("skip_conversion", False)
     colormap = args.get("colormap", "turbo")
     use_compositor = args.get("use_compositor", True)
+    nice = args.get("nice", 0)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.join(script_dir, "render_and_convert.py")
@@ -132,6 +133,10 @@ def render_worker(args: dict) -> dict:
         cmd.extend(["--colormap", colormap])
     if not use_compositor:
         cmd.append("--no-compositor")
+
+    # 降低 Blender 进程的 CPU 优先级，减少抢占（仅 Linux/Unix 有效）
+    if nice and nice > 0 and os.name != "nt":
+        cmd = ["nice", "-n", str(nice)] + cmd
 
     print(f"[GPU {gpu_id}] 开始渲染帧 {frame_start}-{frame_end}")
     sys.stdout.flush()

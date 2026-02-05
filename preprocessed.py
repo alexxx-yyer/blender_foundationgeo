@@ -157,15 +157,15 @@ def normalize_intrinsics(K: np.ndarray, width: int, height: int) -> np.ndarray:
 
 
 def write_index_file(output_dir: Path, instance_paths: List[str]):
-    """写入 index.txt，仅包含已完整存在的样本。"""
+    """写入 .index.txt，仅包含已完整存在的样本。训练 dataloader 默认读 .index.txt。"""
     existing = []
     for rel in instance_paths:
         d = output_dir / rel
         if (d / "image.jpg").exists() and (d / "depth.png").exists() and (d / "meta.json").exists():
             existing.append(rel)
     if existing:
-        (output_dir / "index.txt").write_text("\n".join(sorted(existing)) + "\n")
-        print(f"  已写 index.txt，共 {len(existing)} 条")
+        (output_dir / ".index.txt").write_text("\n".join(sorted(existing)) + "\n")
+        print(f"  已写 .index.txt，共 {len(existing)} 条")
 
 
 def process_frame(args: Tuple[Path, Path, str, Path]) -> Optional[str]:
