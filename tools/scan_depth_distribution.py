@@ -232,19 +232,16 @@ def main():
         except ImportError:
             print("\n未安装 matplotlib，无法绘图。可执行: pip install matplotlib")
         else:
-            all_depths = [r[4] for r in results]  # 用 depth_mean 做分布
-            d_min_plot = min(all_depths)
-            d_max_plot = max(all_depths)
-            if args.depth_max is not None:
-                d_max_plot = min(d_max_plot, args.depth_max)
-            bins = np.linspace(d_min_plot, d_max_plot, args.bins + 1)
-            bin_centers = (bins[:-1] + bins[1:]) / 2
+            # 横轴深度限制在 0.01–100 m，以 10 为底对数刻度 (10^-2 到 10^2)
+            d_min_plot = 1e-2   # 0.01 m
+            d_max_plot = 1e3   # 1000 m
+            bins = np.logspace(-3, 3, args.bins + 1)
+            bin_centers = (bins[:-1] * bins[1:]) ** 0.5
 
             dataset_depths = defaultdict(list)
             for dataset_name, _rel, _dmin, _dmax, dmean, _vr in results:
-                if args.depth_max is not None and dmean > args.depth_max:
-                    continue
-                dataset_depths[dataset_name].append(dmean)
+                if d_min_plot <= dmean <= d_max_plot:
+                    dataset_depths[dataset_name].append(dmean)
 
             fig, ax = plt.subplots(figsize=(10, 6))
             colors = plt.cm.tab10(np.linspace(0, 1, max(len(dataset_depths), 1)))
@@ -255,6 +252,8 @@ def main():
                 y_plot = np.log(hist[mask].astype(float))
                 if len(x_plot) > 0:
                     ax.plot(x_plot, y_plot, "o-", label=dataset_name, color=colors[idx % 10], alpha=0.8, markersize=4)
+            ax.set_xscale("log")
+            ax.set_xlim(d_min_plot, d_max_plot)
             ax.set_xlabel("Depth (m, mean per image)")
             ax.set_ylabel("ln(Image count)")
             ax.set_title("Depth distribution by dataset")

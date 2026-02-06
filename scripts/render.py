@@ -52,11 +52,14 @@ def apply_render_device(device: str | None, compute_type: str | None = None,
         
         bpy.context.scene.cycles.device = "GPU"
 
+        # 将无效的 compute_type 视为未指定，走自动检测
+        if compute_type in ("NONE", ""):
+            compute_type = None
+
         try:
             cycles_prefs = bpy.context.preferences.addons.get("cycles")
             if not cycles_prefs:
-                if verbose:
-                    print("  警告: 未找到 Cycles 插件，无法配置 GPU")
+                print("  错误: 未找到 Cycles 插件，无法使用 GPU，已回退到 CPU（会导致 CPU 占满）", file=sys.stderr)
                 bpy.context.scene.cycles.device = "CPU"
                 return
 
@@ -82,8 +85,7 @@ def apply_render_device(device: str | None, compute_type: str | None = None,
                         continue
 
             if not compute_type:
-                if verbose:
-                    print("  警告: 未找到可用的 GPU 计算设备，将使用 CPU")
+                print("  错误: 未找到可用的 GPU 计算设备（请检查驱动/CUDA/Blender 是否支持 GPU），已回退到 CPU（会导致 CPU 占满）", file=sys.stderr)
                 bpy.context.scene.cycles.device = "CPU"
                 return
 
@@ -120,13 +122,11 @@ def apply_render_device(device: str | None, compute_type: str | None = None,
                     for gpu_name in enabled_gpus:
                         print(f"    - {gpu_name}")
             else:
-                if verbose:
-                    print(f"  警告: 未启用任何 GPU 设备，将使用 CPU")
+                print(f"  错误: 未启用任何 GPU 设备（gpu_ids 或设备列表异常），已回退到 CPU（会导致 CPU 占满）", file=sys.stderr)
                 bpy.context.scene.cycles.device = "CPU"
 
         except Exception as e:
-            if verbose:
-                print(f"  警告: GPU 配置失败: {e}，将使用 CPU")
+            print(f"  错误: GPU 配置失败: {e}，已回退到 CPU（会导致 CPU 占满）", file=sys.stderr)
             bpy.context.scene.cycles.device = "CPU"
 
 
@@ -482,6 +482,12 @@ def render_frames_direct(blend_path: str, output_dir: str,
         gpu_ids,
     )
 
+    # 若明确请求 GPU 但实际落到 CPU，直接失败，避免多进程把 CPU 拖死
+    if os.environ.get("FG_DEVICE", "").upper() == "GPU" and getattr(scene.cycles, "device", "CPU") == "CPU":
+        print("  错误: 已请求 GPU 渲染但未成功使用 GPU（见上方错误），当前为 CPU 渲染，已退出。", file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)
+
     # 始终输出关键信息（不受 verbose 控制）
     print(f"  渲染引擎: {scene.render.engine}")
     device_info = get_render_device_info()
@@ -729,6 +735,12 @@ def render_frames(blend_path: str, output_dir: str,
         os.environ.get("FG_COMPUTE_TYPE"),
         gpu_ids,
     )
+
+    # 若明确请求 GPU 但实际落到 CPU，直接失败，避免多进程把 CPU 拖死
+    if os.environ.get("FG_DEVICE", "").upper() == "GPU" and getattr(scene.cycles, "device", "CPU") == "CPU":
+        print("  错误: 已请求 GPU 渲染但未成功使用 GPU（见上方错误），当前为 CPU 渲染，已退出。", file=sys.stderr)
+        sys.stderr.flush()
+        sys.exit(1)
 
     # 始终输出关键信息（不受 verbose 控制）
     print(f"  渲染引擎: {scene.render.engine}")

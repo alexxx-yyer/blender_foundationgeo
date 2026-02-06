@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""多进程并行渲染：每张 GPU 渲染不同的帧范围"""
+"""多进程并行渲染：每张 GPU 渲染不同的帧范围。
+
+通过 CUDA_VISIBLE_DEVICES 限制每个子进程只看到一张 GPU，并设置 FG_GPU_IDS=0，
+使 Blender 在该卡上初始化，避免 C+G 全在 GPU 0 上。
+"""
 
 import argparse
 import json
@@ -17,7 +21,7 @@ except ImportError:
 
 
 def get_blend_info(blend_file: str, blender_exe: str) -> dict:
-    """从 .blend 文件中读取渲染信息（分辨率、采样数等）"""
+    """从 .blend 文件中读取渲染信息（分辨率、采样数等）。会启动一次 Blender，大场景可能较慢。"""
     script = '''
 import bpy
 import json
@@ -94,19 +98,17 @@ def render_worker(args: dict) -> dict:
     skip_conversion = args.get("skip_conversion", False)
     colormap = args.get("colormap", "turbo")
     use_compositor = args.get("use_compositor", True)
-    nice = args.get("nice", 0)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.join(script_dir, "render_and_convert.py")
 
+    # 子进程只暴露一张 GPU，FG_GPU_IDS=0，使 Blender 在该卡上初始化（解决 C+G 全在 GPU 0）
     env = os.environ.copy()
     env["FG_DEVICE"] = "GPU"
     env["FG_COMPUTE_TYPE"] = compute_type
-    # 设置 CUDA_VISIBLE_DEVICES 限制进程只能看到指定的 GPU
-    # 这样初始化也会在该 GPU 上进行，而不是都在 GPU 0 上
     env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    # 由于 CUDA_VISIBLE_DEVICES 限制后，可见的 GPU 索引变成 0
     env["FG_GPU_IDS"] = "0"
+    env["FG_USE_COMPOSITOR"] = "1" if use_compositor else "0"
 
     cmd = [
         blender_exe,
@@ -133,10 +135,6 @@ def render_worker(args: dict) -> dict:
         cmd.extend(["--colormap", colormap])
     if not use_compositor:
         cmd.append("--no-compositor")
-
-    # 降低 Blender 进程的 CPU 优先级，减少抢占（仅 Linux/Unix 有效）
-    if nice and nice > 0 and os.name != "nt":
-        cmd = ["nice", "-n", str(nice)] + cmd
 
     print(f"[GPU {gpu_id}] 开始渲染帧 {frame_start}-{frame_end}")
     sys.stdout.flush()
@@ -273,13 +271,7 @@ def parallel_render(
     blender_exe: str = None,
     use_compositor: bool = True,
 ):
-    """多 GPU 并行渲染
-    
-    GPU 选择优先级：
-    1. --gpu-ids 参数（最高优先级）
-    2. CUDA_VISIBLE_DEVICES 环境变量
-    3. --num-gpus 参数（使用 GPU 0, 1, ..., num_gpus-1）
-    """
+    """多 GPU 并行渲染。GPU 选择：--gpu-ids > CUDA_VISIBLE_DEVICES > --num-gpus。"""
     # 确定要使用的 GPU 列表
     if gpu_ids is None:
         # 尝试从环境变量获取
@@ -287,7 +279,9 @@ def parallel_render(
         if env_gpus is not None:
             gpu_ids = env_gpus
             print(f"从 CUDA_VISIBLE_DEVICES 检测到 GPU: {gpu_ids}")
-    
+        else:
+            gpu_ids = list(range(num_gpus))
+
     if blender_exe is None:
         blender_exe = find_blender_executable()
         if blender_exe is None:
@@ -303,10 +297,9 @@ def parallel_render(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # 获取 .blend 文件信息
     print("正在读取场景信息...")
     blend_info = get_blend_info(blend_file, blender_exe)
-    
+
     # 使用命令行参数覆盖或使用 .blend 文件中的值
     render_width = width if width else blend_info.get("width", "未知")
     render_height = height if height else blend_info.get("height", "未知")
@@ -437,11 +430,9 @@ def main():
     parser.add_argument("--colormap", default="turbo", help="PNG colormap")
     parser.add_argument("--blender", help="Blender 可执行文件路径")
     parser.add_argument("--no-compositor", action="store_true",
-                        help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
+                        help="不依赖用户预先配置的合成器，自动创建节点")
 
     args = parser.parse_args()
-    
-    # 解析 gpu_ids
     gpu_ids = None
     if args.gpu_ids:
         gpu_ids = [int(x.strip()) for x in args.gpu_ids.split(",")]

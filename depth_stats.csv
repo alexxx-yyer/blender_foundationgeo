@@ -575,7 +575,7 @@ DDAD,26.074,1
 DDAD,26.086,1
 DDAD,26.165,1
 DDAD,26.167,1
-DDAD,26.191,1
+DDAD,26.192,1
 DDAD,26.209,1
 DDAD,26.219,1
 DDAD,26.250,1
@@ -956,7 +956,7 @@ DDAD,40.163,1
 DDAD,40.291,1
 DDAD,40.311,1
 DDAD,40.349,1
-DDAD,40.432,1
+DDAD,40.433,1
 DDAD,40.526,1
 DDAD,40.566,1
 DDAD,41.067,1
@@ -1747,7 +1747,7 @@ ETH3D,1.443,1
 ETH3D,1.464,1
 ETH3D,1.467,1
 ETH3D,1.469,1
-ETH3D,1.501,1
+ETH3D,1.502,1
 ETH3D,1.541,1
 ETH3D,1.558,1
 ETH3D,1.561,1
@@ -4673,7 +4673,7 @@ Sintel,4.607,1
 Sintel,4.626,1
 Sintel,4.645,1
 Sintel,4.657,1
-Sintel,4.668,1
+Sintel,4.669,1
 Sintel,4.682,1
 Sintel,4.687,1
 Sintel,4.700,1
@@ -5196,7 +5196,7 @@ Sintel,452.829,1
 Sintel,456.124,1
 Sintel,459.458,1
 Sintel,462.978,1
-Sintel,466.599,1
+Sintel,466.600,1
 Sintel,471.037,1
 Sintel,475.943,1
 Sintel,480.699,1
@@ -5215,7 +5215,7 @@ Sintel,565.263,1
 Sintel,570.322,1
 Sintel,573.747,1
 Sintel,575.912,1
-Sintel,577.610,1
+Sintel,577.609,1
 Sintel,579.428,1
 Sintel,581.175,1
 Sintel,583.251,1
@@ -5528,7 +5528,8 @@ Spring,1.303,1
 Spring,1.319,1
 Spring,1.327,1
 Spring,1.333,1
-Spring,1.336,2
+Spring,1.335,1
+Spring,1.336,1
 Spring,1.340,1
 Spring,1.341,1
 Spring,1.343,1
@@ -5776,7 +5777,7 @@ Spring,16.614,1
 Spring,16.637,1
 Spring,16.663,1
 Spring,16.710,1
-Spring,16.717,1
+Spring,16.716,1
 Spring,16.719,1
 Spring,16.725,1
 Spring,16.757,1
@@ -5808,7 +5809,7 @@ Spring,78.302,1
 Spring,78.402,1
 Spring,78.471,1
 Spring,78.510,1
-Spring,78.533,1
+Spring,78.532,1
 Spring,78.620,1
 Spring,78.633,1
 Spring,78.644,1
