@@ -10,3 +10,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+
+# Generated visualization/statistics artifacts
+artifacts/visualization/
+
+# Legacy generated files at repo root
+depth_distribution.png
+fx_distribution.png
+depth_stats.csv
+fx_stats.csv
+depths.csv

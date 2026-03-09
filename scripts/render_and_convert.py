@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""整合 Blender 渲染、相机参数导出和 EXR 转换功能（CLI 入口）"""
+"""CLI entrypoint for rendering, camera export, and EXR conversion."""
 
 import os
 import sys
 
-# 添加脚本目录到 Python 路径，以便在 Blender 环境中也能找到模块
+# Add scripts directory to Python path (needed in Blender runtime as well).
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir not in sys.path:
     sys.path.insert(0, script_dir)
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     if args.compute_type:
         os.environ["FG_COMPUTE_TYPE"] = str(args.compute_type)
     
-    # 从环境变量或参数中获取 use_compositor
+    # Resolve compositor mode from env var and CLI flags.
     use_compositor = os.environ.get("FG_USE_COMPOSITOR", "1") == "1"
     if hasattr(args, "no_compositor") and args.no_compositor:
         use_compositor = False
@@ -46,7 +46,7 @@ if __name__ == "__main__":
                 use_compositor=use_compositor,
             )
         except Exception as e:
-            print(f"错误: {e}", file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
         try:
@@ -67,5 +67,5 @@ if __name__ == "__main__":
             if not ok:
                 sys.exit(1)
         except Exception as e:
-            print(f"错误: {e}", file=sys.stderr)
+            print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YAML 配置加载与合并"""
+"""YAML """
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ def load_yaml_config(path: str) -> dict:
     try:
         import yaml
     except ImportError as exc:
-        raise RuntimeError("缺少 PyYAML，请先安装：pip install pyyaml") from exc
+        raise RuntimeError(" PyYAML，：pip install pyyaml") from exc
 
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
@@ -16,7 +16,7 @@ def load_yaml_config(path: str) -> dict:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ValueError("YAML 顶层必须是字典")
+        raise ValueError("YAML ")
     return data
 
 

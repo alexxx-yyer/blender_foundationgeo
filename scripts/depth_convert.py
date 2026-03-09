@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""EXR 深度转换（EXR -> NPY / PNG / NPY+PNG）"""
+"""Depth conversion utilities (EXR -> NPY / PNG / NPY+PNG)."""
 
 import argparse
 import contextlib
@@ -17,12 +17,12 @@ import matplotlib.pyplot as plt
 
 def exr_to_npy(exr_path: str, npy_path: str | None = None) -> np.ndarray:
     """
-    将 EXR 文件转换为 NPY 格式
+    Convert an EXR file to NPY format.
     """
     exr_path = os.path.expanduser(exr_path)
 
     if not os.path.exists(exr_path):
-        raise FileNotFoundError(f"找不到文件: {exr_path}")
+        raise FileNotFoundError(f"File not found: {exr_path}")
 
     exr_file = OpenEXR.InputFile(exr_path)
     header = exr_file.header()
@@ -61,7 +61,7 @@ def exr_to_npy(exr_path: str, npy_path: str | None = None) -> np.ndarray:
         npy_path = os.path.splitext(exr_path)[0] + ".npy"
     else:
         npy_path = os.path.expanduser(npy_path)
-        # 如果是目录，在目录下创建同名文件
+        # If output is a directory, create output with the same basename.
         if os.path.isdir(npy_path) or npy_path.endswith(os.sep):
             os.makedirs(npy_path, exist_ok=True)
             basename = os.path.splitext(os.path.basename(exr_path))[0] + ".npy"
@@ -70,12 +70,12 @@ def exr_to_npy(exr_path: str, npy_path: str | None = None) -> np.ndarray:
     os.makedirs(os.path.dirname(npy_path) or ".", exist_ok=True)
     np.save(npy_path, img)
 
-    print("转换完成!")
-    print(f"  输入: {exr_path}")
-    print(f"  输出: {npy_path}")
-    print(f"  形状: {img.shape}")
-    print(f"  数据类型: {img.dtype}")
-    print(f"  通道: {channels}")
+    print("Conversion complete!")
+    print(f"  Input: {exr_path}")
+    print(f"  Output: {npy_path}")
+    print(f"  Shape: {img.shape}")
+    print(f"  Data type: {img.dtype}")
+    print(f"  Channels: {channels}")
 
     return img
 
@@ -84,7 +84,7 @@ def exr_to_png(exr_path: str, png_path: str | None = None, colormap: str = "viri
                vmin: float | None = None, vmax: float | None = None,
                invert: bool = True) -> np.ndarray:
     """
-    将 EXR 深度文件转换为伪彩色 PNG
+    Convert an EXR depth file to a pseudocolor PNG.
     """
     exr_path = os.path.expanduser(exr_path)
 
@@ -116,7 +116,7 @@ def exr_to_png(exr_path: str, png_path: str | None = None, colormap: str = "viri
     else:
         depth = channel_data[sorted(channels)[0]]
 
-    # 过滤 Blender 的无穷大深度值（背景/天空区域）
+    # Filter Blender infinite-depth background values.
     INF_THRESHOLD = 1e9
     valid_mask = depth < INF_THRESHOLD
 
@@ -140,7 +140,7 @@ def exr_to_png(exr_path: str, png_path: str | None = None, colormap: str = "viri
         png_path = os.path.splitext(exr_path)[0] + ".png"
     else:
         png_path = os.path.expanduser(png_path)
-        # 如果是目录，在目录下创建同名文件
+        # If output is a directory, create output with the same basename.
         if os.path.isdir(png_path) or png_path.endswith(os.sep):
             os.makedirs(png_path, exist_ok=True)
             basename = os.path.splitext(os.path.basename(exr_path))[0] + ".png"
@@ -162,11 +162,11 @@ def exr_to_png(exr_path: str, png_path: str | None = None, colormap: str = "viri
 
 
 def batch_exr_to_npy(input_dir: str, output_dir: str | None = None, recursive: bool = False):
-    """批量将目录中的 EXR 文件转换为 NPY 格式"""
+    """Batch-convert EXR files in a directory to NPY."""
     input_dir = os.path.expanduser(input_dir)
 
     if not os.path.isdir(input_dir):
-        raise NotADirectoryError(f"目录不存在: {input_dir}")
+        raise NotADirectoryError(f"Directory does not exist: {input_dir}")
 
     if recursive:
         pattern = os.path.join(input_dir, "**", "*.exr")
@@ -176,10 +176,10 @@ def batch_exr_to_npy(input_dir: str, output_dir: str | None = None, recursive: b
         exr_files = glob.glob(pattern)
 
     if not exr_files:
-        print(f"在目录 {input_dir} 中未找到 EXR 文件")
+        print(f"No EXR files found in directory: {input_dir}")
         return
 
-    print(f"找到 {len(exr_files)} 个 EXR 文件")
+    print(f"Found {len(exr_files)} EXR file(s)")
 
     if output_dir is None:
         output_dir = input_dir
@@ -206,27 +206,27 @@ def batch_exr_to_npy(input_dir: str, output_dir: str | None = None, recursive: b
                 else:
                     npy_path = os.path.join(output_dir, base_name + ".npy")
 
-            print(f"\n处理: {os.path.basename(exr_file)}")
+            print(f"\nProcessing: {os.path.basename(exr_file)}")
             exr_to_npy(exr_file, npy_path)
             success_count += 1
         except Exception as e:
-            print(f"  ✗ 错误: {e}")
+            print(f"  ✗ Error: {e}")
             fail_count += 1
 
-    print("\n批量转换完成!")
-    print(f"  成功: {success_count}")
-    print(f"  失败: {fail_count}")
+    print("\nBatch conversion complete!")
+    print(f"  Success: {success_count}")
+    print(f"  Failed: {fail_count}")
 
 
 def batch_exr_to_png(input_dir: str, output_dir: str | None = None,
                      colormap: str = "turbo", vmin: float | None = None,
                      vmax: float | None = None, invert: bool = True,
                      recursive: bool = False):
-    """批量将目录中的 EXR 文件转换为 PNG 格式"""
+    """Batch-convert EXR files in a directory to PNG."""
     input_dir = os.path.expanduser(input_dir)
 
     if not os.path.isdir(input_dir):
-        raise NotADirectoryError(f"目录不存在: {input_dir}")
+        raise NotADirectoryError(f"Directory does not exist: {input_dir}")
 
     if recursive:
         pattern = os.path.join(input_dir, "**", "*.exr")
@@ -236,10 +236,10 @@ def batch_exr_to_png(input_dir: str, output_dir: str | None = None,
         exr_files = glob.glob(pattern)
 
     if not exr_files:
-        print(f"在目录 {input_dir} 中未找到 EXR 文件")
+        print(f"No EXR files found in directory: {input_dir}")
         return
 
-    print(f"找到 {len(exr_files)} 个 EXR 文件")
+    print(f"Found {len(exr_files)} EXR file(s)")
 
     if output_dir is None:
         output_dir = input_dir
@@ -266,26 +266,26 @@ def batch_exr_to_png(input_dir: str, output_dir: str | None = None,
                 else:
                     png_path = os.path.join(output_dir, base_name + ".png")
 
-            print(f"\n处理: {os.path.basename(exr_file)}")
+            print(f"\nProcessing: {os.path.basename(exr_file)}")
             exr_to_png(exr_file, png_path, colormap, vmin, vmax, invert)
             success_count += 1
         except Exception as e:
-            print(f"  ✗ 错误: {e}")
+            print(f"  ✗ Error: {e}")
             fail_count += 1
 
-    print("\n批量转换完成!")
-    print(f"  成功: {success_count}")
-    print(f"  失败: {fail_count}")
+    print("\nBatch conversion complete!")
+    print(f"  Success: {success_count}")
+    print(f"  Failed: {fail_count}")
 
 
 def convert_single_exr(exr_file: str, depth_exr_dir: str, colormap: str = "turbo",
                        silent: bool = True) -> bool:
-    """转换单个 EXR 文件为 NPY 和 PNG"""
+    """Convert one EXR file into both NPY and PNG outputs."""
     exr_file = os.path.abspath(os.path.expanduser(exr_file))
 
     if not os.path.exists(exr_file):
         if not silent:
-            print(f"警告: 文件不存在: {exr_file}")
+            print(f"Warning: file does not exist: {exr_file}")
         return False
 
     try:
@@ -310,23 +310,23 @@ def convert_single_exr(exr_file: str, depth_exr_dir: str, colormap: str = "turbo
 
             png_path = os.path.join(depth_vis_dir, f"{base_name_no_ext}.png")
             exr_to_png(exr_file, png_path, colormap=colormap)
-            print(f"  ✓ 转换完成: {base_name}")
+            print(f"  ✓ Converted: {base_name}")
 
         return True
     except Exception as e:
         if not silent:
-            print(f"  ✗ 转换失败 {os.path.basename(exr_file)}: {e}")
+            print(f"  ✗ Conversion failed for {os.path.basename(exr_file)}: {e}")
         return False
 
 
 def _convert_single_exr_worker(args: tuple) -> tuple:
-    """多进程 worker：转换单个 EXR 文件"""
+    """Multiprocessing worker for single EXR conversion."""
     exr_file, depth_npy_dir, depth_vis_dir, colormap = args
     try:
         base_name = os.path.basename(exr_file)
         base_name_no_ext = os.path.splitext(base_name)[0]
 
-        # 静默转换
+        # Silent conversion
         with contextlib.redirect_stdout(io.StringIO()):
             npy_path = os.path.join(depth_npy_dir, f"{base_name_no_ext}.npy")
             exr_to_npy(exr_file, npy_path)
@@ -341,30 +341,30 @@ def _convert_single_exr_worker(args: tuple) -> tuple:
 
 def convert_exr_files(depth_exr_dir: str, colormap: str = "turbo", 
                       num_workers: int = None) -> None:
-    """将 depth/exr/ 目录中的 EXR 文件转换为 NPY 和 PNG（多进程）"""
+    """Convert EXR files under depth/exr/ to NPY and PNG (multiprocessing)."""
     depth_exr_dir = os.path.expanduser(depth_exr_dir)
 
     if not os.path.isdir(depth_exr_dir):
-        print(f"警告: 目录不存在: {depth_exr_dir}")
+        print(f"Warning: directory does not exist: {depth_exr_dir}")
         return
 
     exr_files = sorted(glob.glob(os.path.join(depth_exr_dir, "*.exr")))
 
     if not exr_files:
-        print(f"在目录 {depth_exr_dir} 中未找到 EXR 文件")
+        print(f"No EXR files found in directory: {depth_exr_dir}")
         return
 
     if num_workers is None:
-        num_workers = max(1, cpu_count() - 1)  # 留一个核心给系统
+        num_workers = max(1, cpu_count() - 1)  # Reserve one core for the OS.
 
-    print(f"\n找到 {len(exr_files)} 个 EXR 文件，使用 {num_workers} 个进程转换...")
+    print(f"\nFound {len(exr_files)} EXR file(s), converting with {num_workers} worker(s)...")
 
     depth_npy_dir = os.path.join(os.path.dirname(depth_exr_dir), "npy")
     depth_vis_dir = os.path.join(os.path.dirname(depth_exr_dir), "vis")
     os.makedirs(depth_npy_dir, exist_ok=True)
     os.makedirs(depth_vis_dir, exist_ok=True)
 
-    # 构建任务参数
+    # Build task arguments.
     tasks = [(exr_file, depth_npy_dir, depth_vis_dir, colormap) for exr_file in exr_files]
 
     success_count = 0
@@ -382,32 +382,32 @@ def convert_exr_files(depth_exr_dir: str, colormap: str = "turbo",
                 success_count += 1
             else:
                 fail_count += 1
-                print(f"  ✗ 转换失败 {filename}: {error}")
+                print(f"  ✗ Conversion failed for {filename}: {error}")
             
-            # 打印进度
+            # Print progress.
             if completed % 100 == 0 or completed == total:
-                print(f"  进度: {completed}/{total} ({100*completed/total:.1f}%)")
+                print(f"  Progress: {completed}/{total} ({100*completed/total:.1f}%)")
 
-    print("\n转换完成!")
-    print(f"  成功: {success_count}")
-    print(f"  失败: {fail_count}")
+    print("\nConversion complete!")
+    print(f"  Success: {success_count}")
+    print(f"  Failed: {fail_count}")
     print(f"  NPY: {depth_npy_dir}")
     print(f"  PNG: {depth_vis_dir}")
 
 
 def _build_parser():
     parser = argparse.ArgumentParser(
-        description="EXR 深度转换（NPY/PNG/NPY+PNG）",
+        description="EXR depth conversion (NPY/PNG/NPY+PNG)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  # 转换单个 EXR -> NPY
+Examples:
+  # Convert a single EXR -> NPY
   python depth_convert.py exr2npy input.exr
 
-  # 转换单个 EXR -> PNG
+  # Convert a single EXR -> PNG
   python depth_convert.py exr2png input.exr -c turbo
 
-  # 批量转换目录中的 EXR -> NPY + PNG
+  # Batch-convert EXR files in a directory -> NPY + PNG
   python depth_convert.py exr2all /path/to/depth/exr
         """,
     )
@@ -415,26 +415,26 @@ def _build_parser():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     exr2npy_cmd = subparsers.add_parser("exr2npy", help="EXR -> NPY")
-    exr2npy_cmd.add_argument("input", help="输入的 EXR 文件路径或目录")
-    exr2npy_cmd.add_argument("-o", "--output", help="输出的 NPY 文件路径或目录（可选）")
-    exr2npy_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
-    exr2npy_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
+    exr2npy_cmd.add_argument("input", help="Input EXR file or directory")
+    exr2npy_cmd.add_argument("-o", "--output", help="Output NPY file or directory (optional)")
+    exr2npy_cmd.add_argument("--batch", action="store_true", help="Batch mode: treat input as directory")
+    exr2npy_cmd.add_argument("-r", "--recursive", action="store_true", help="Search subdirectories recursively (batch mode only)")
 
     exr2png_cmd = subparsers.add_parser("exr2png", help="EXR -> PNG")
-    exr2png_cmd.add_argument("input", help="输入的 EXR 文件路径或目录")
-    exr2png_cmd.add_argument("-o", "--output", help="输出的 PNG 文件路径或目录（可选）")
+    exr2png_cmd.add_argument("input", help="Input EXR file or directory")
+    exr2png_cmd.add_argument("-o", "--output", help="Output PNG file or directory (optional)")
     exr2png_cmd.add_argument("-c", "--colormap", default="turbo",
-                             help="Colormap 名称：turbo, turbo_r, viridis, jet, plasma, inferno")
+                             help="Colormap name: turbo, turbo_r, viridis, jet, plasma, inferno")
     exr2png_cmd.add_argument("--vmin", type=float, help="Min depth value")
     exr2png_cmd.add_argument("--vmax", type=float, help="Max depth value")
     exr2png_cmd.add_argument("--no-invert", action="store_false", dest="invert",
                              help="Disable invert depth (near=red, far=blue)")
-    exr2png_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
-    exr2png_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
+    exr2png_cmd.add_argument("--batch", action="store_true", help="Batch mode: treat input as directory")
+    exr2png_cmd.add_argument("-r", "--recursive", action="store_true", help="Search subdirectories recursively (batch mode only)")
 
     exr2all_cmd = subparsers.add_parser("exr2all", help="EXR -> NPY + PNG")
-    exr2all_cmd.add_argument("depth_exr_dir", help="depth/exr 目录路径")
-    exr2all_cmd.add_argument("--colormap", default="turbo", help="PNG 转换的 colormap（默认：turbo）")
+    exr2all_cmd.add_argument("depth_exr_dir", help="Path to depth/exr directory")
+    exr2all_cmd.add_argument("--colormap", default="turbo", help="Colormap for PNG conversion (default: turbo)")
 
     return parser
 
@@ -478,7 +478,7 @@ def _main():
         convert_exr_files(args.depth_exr_dir, args.colormap)
         return
 
-    parser.error("未知命令")
+    parser.error("Unknown command")
 
 
 if __name__ == "__main__":

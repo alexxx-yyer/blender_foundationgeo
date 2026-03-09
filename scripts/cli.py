@@ -1,55 +1,55 @@
 #!/usr/bin/env python3
-"""渲染与转换 CLI 参数解析"""
+"""CLI argument definitions for rendering and conversion."""
 
 import argparse
 
 
 def add_render_args(parser: argparse.ArgumentParser, include_config: bool = False) -> None:
-    parser.add_argument("blend_file", help="输入的 .blend 文件路径")
-    parser.add_argument("-o", "--output", required=True, help="输出目录（scene/）")
-    parser.add_argument("-c", "--camera", help="相机名称（默认：活动相机）")
-    parser.add_argument("-w", "--width", type=int, help="渲染宽度（默认：使用场景设置）")
-    parser.add_argument("--height", type=int, help="渲染高度（默认：使用场景设置）")
-    parser.add_argument("--export-animation", action="store_true", help="导出动画中每一帧")
-    parser.add_argument("--frame-start", type=int, default=None, help="起始帧（默认：使用场景设置）")
-    parser.add_argument("--frame-end", type=int, default=None, help="结束帧（默认：使用场景设置）")
-    parser.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
-    parser.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换（仅渲染）")
-    parser.add_argument("--colormap", default="turbo", help="PNG 转换的 colormap（默认：turbo）")
-    parser.add_argument("--blender", help="Blender 可执行文件路径（默认：自动查找）")
-    parser.add_argument("--device", choices=["CPU", "GPU"], help="渲染设备")
+    parser.add_argument("blend_file", help="Path to input .blend file")
+    parser.add_argument("-o", "--output", required=True, help="Output directory (scene/)")
+    parser.add_argument("-c", "--camera", help="Camera name (default: active camera)")
+    parser.add_argument("-w", "--width", type=int, help="Render width (default: scene setting)")
+    parser.add_argument("--height", type=int, help="Render height (default: scene setting)")
+    parser.add_argument("--export-animation", action="store_true", help="Export every frame in animation")
+    parser.add_argument("--frame-start", type=int, default=None, help="Start frame (default: scene setting)")
+    parser.add_argument("--frame-end", type=int, default=None, help="End frame (default: scene setting)")
+    parser.add_argument("--frame-step", type=int, default=1, help="Frame step (default: 1)")
+    parser.add_argument("--skip-conversion", action="store_true", help="Skip EXR conversion (render only)")
+    parser.add_argument("--colormap", default="turbo", help="Colormap for PNG conversion (default: turbo)")
+    parser.add_argument("--blender", help="Path to Blender executable (default: auto-detect)")
+    parser.add_argument("--device", choices=["CPU", "GPU"], help="Render device")
     parser.add_argument("--compute-type",
                         choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
-                        help="GPU 计算类型")
+                        help="GPU compute backend")
     parser.add_argument("--gpu-ids",
-                        help="指定使用的 GPU 索引，如 '0,1,2,3' 或 'all'（默认：all）")
+                        help="GPU indices, e.g. '0,1,2,3' or 'all' (default: all)")
     parser.add_argument("--verbose", action="store_true",
-                        help="显示详细的 Blender 输出（默认：仅显示进度条）")
+                        help="Show verbose Blender output (default: concise progress only)")
     parser.add_argument("--no-compositor", action="store_true",
-                        help="自动创建合成器节点，不依赖用户预先配置的合成器（默认：使用用户预先配置的合成器）")
+                        help="Auto-create compositor nodes instead of requiring preconfigured compositor")
     if include_config:
-        parser.add_argument("--config", help="YAML 配置文件路径（仅 render 子命令）")
+        parser.add_argument("--config", help="Path to YAML config file (render command only)")
 
 
 def build_render_parser():
     parser = argparse.ArgumentParser(
-        description="整合 Blender 渲染、相机参数导出和 EXR 转换",
+        description="Render with Blender and convert EXR depth outputs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  # 单帧渲染:
+Examples:
+  # Single frame:
   python render_and_convert.py input.blend -o scene/
 
-  # 动画渲染:
+  # Animation:
   python render_and_convert.py input.blend -o scene/ --export-animation
 
-  # 指定相机和渲染尺寸:
+  # Camera and resolution:
   python render_and_convert.py input.blend -o scene/ -c Camera -w 1920 --height 1080
 
-  # 指定帧范围:
+  # Frame range:
   python render_and_convert.py input.blend -o scene/ --export-animation --frame-start 1 --frame-end 48
 
-  # 跳过 EXR 转换:
+  # Render only (skip EXR conversion):
   python render_and_convert.py input.blend -o scene/ --skip-conversion
         """,
     )
@@ -66,70 +66,70 @@ def parse_render_args(argv):
 
 def build_main_parser():
     parser = argparse.ArgumentParser(
-        description="FoundationGeo 工具入口（渲染 + EXR 转换）"
+        description="FoundationGeo tools entrypoint (render + EXR conversion)"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     render = subparsers.add_parser(
         "render",
-        help="调用 Blender 渲染，并可选实时转换 EXR",
+        help="Run Blender render and optionally convert EXR outputs on the fly",
     )
     add_render_args(render, include_config=True)
 
     exr2all = subparsers.add_parser(
         "exr2all",
-        help="将 depth/exr 目录下的 EXR 转换为 NPY + PNG",
+        help="Convert EXR files in depth/exr directory to NPY + PNG",
     )
-    exr2all.add_argument("depth_exr_dir", help="depth/exr 目录路径")
-    exr2all.add_argument("--colormap", default="turbo", help="PNG 转换的 colormap（默认：turbo）")
+    exr2all.add_argument("depth_exr_dir", help="Path to depth/exr directory")
+    exr2all.add_argument("--colormap", default="turbo", help="Colormap for PNG conversion (default: turbo)")
 
     exr2npy_cmd = subparsers.add_parser(
         "exr2npy",
-        help="单独执行 EXR -> NPY",
+        help="Run EXR -> NPY conversion",
     )
-    exr2npy_cmd.add_argument("input", help="输入的 EXR 文件路径或目录")
-    exr2npy_cmd.add_argument("-o", "--output", help="输出的 NPY 文件路径或目录（可选）")
-    exr2npy_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
-    exr2npy_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
+    exr2npy_cmd.add_argument("input", help="Input EXR file or directory")
+    exr2npy_cmd.add_argument("-o", "--output", help="Output NPY file or directory (optional)")
+    exr2npy_cmd.add_argument("--batch", action="store_true", help="Batch mode: treat input as directory")
+    exr2npy_cmd.add_argument("-r", "--recursive", action="store_true", help="Search subdirectories recursively (batch mode only)")
 
     exr2png_cmd = subparsers.add_parser(
         "exr2png",
-        help="单独执行 EXR -> PNG",
+        help="Run EXR -> PNG conversion",
     )
     exr2png_cmd.set_defaults(invert=True)
-    exr2png_cmd.add_argument("input", help="输入的 EXR 文件路径或目录")
-    exr2png_cmd.add_argument("-o", "--output", help="输出的 PNG 文件路径或目录（可选）")
+    exr2png_cmd.add_argument("input", help="Input EXR file or directory")
+    exr2png_cmd.add_argument("-o", "--output", help="Output PNG file or directory (optional)")
     exr2png_cmd.add_argument("-c", "--colormap", default="turbo",
-                             help="Colormap 名称：turbo, turbo_r, viridis, jet, plasma, inferno")
+                             help="Colormap name: turbo, turbo_r, viridis, jet, plasma, inferno")
     exr2png_cmd.add_argument("--vmin", type=float, help="Min depth value")
     exr2png_cmd.add_argument("--vmax", type=float, help="Max depth value")
     exr2png_cmd.add_argument("--no-invert", action="store_false", dest="invert",
                              help="Disable invert depth (near=red, far=blue)")
-    exr2png_cmd.add_argument("--batch", action="store_true", help="批量处理模式：将输入视为目录")
-    exr2png_cmd.add_argument("-r", "--recursive", action="store_true", help="递归搜索子目录（仅批量模式）")
+    exr2png_cmd.add_argument("--batch", action="store_true", help="Batch mode: treat input as directory")
+    exr2png_cmd.add_argument("-r", "--recursive", action="store_true", help="Search subdirectories recursively (batch mode only)")
 
     parallel = subparsers.add_parser(
         "parallel",
-        help="多 GPU 并行渲染（每张卡渲染不同帧）",
+        help="Multi-GPU parallel render (each GPU renders different frame ranges)",
     )
-    parallel.add_argument("blend_file", help="输入的 .blend 文件路径")
-    parallel.add_argument("-o", "--output", required=True, help="输出目录")
-    parallel.add_argument("--frame-start", type=int, required=True, help="起始帧")
-    parallel.add_argument("--frame-end", type=int, required=True, help="结束帧")
+    parallel.add_argument("blend_file", help="Path to input .blend file")
+    parallel.add_argument("-o", "--output", required=True, help="Output directory")
+    parallel.add_argument("--frame-start", type=int, required=True, help="Start frame")
+    parallel.add_argument("--frame-end", type=int, required=True, help="End frame")
     parallel.add_argument("--num-gpus", type=int, default=None,
-                          help="使用的 GPU 数量（与 --gpu-ids 二选一，默认：8）")
-    parallel.add_argument("--gpu-ids", help="指定使用的 GPU 索引，如 '3,4,5,6,7'（与 --num-gpus 二选一）")
-    parallel.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
+                          help="Number of GPUs to use (mutually exclusive with --gpu-ids, default: 8)")
+    parallel.add_argument("--gpu-ids", help="GPU indices to use, e.g. '3,4,5,6,7' (mutually exclusive with --num-gpus)")
+    parallel.add_argument("--frame-step", type=int, default=1, help="Frame step (default: 1)")
     parallel.add_argument("--compute-type", default="CUDA",
                           choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
-                          help="GPU 计算类型（默认：CUDA）")
-    parallel.add_argument("-c", "--camera", help="相机名称")
-    parallel.add_argument("-w", "--width", type=int, help="渲染宽度")
-    parallel.add_argument("--height", type=int, help="渲染高度")
-    parallel.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换")
+                          help="GPU compute backend (default: CUDA)")
+    parallel.add_argument("-c", "--camera", help="Camera name")
+    parallel.add_argument("-w", "--width", type=int, help="Render width")
+    parallel.add_argument("--height", type=int, help="Render height")
+    parallel.add_argument("--skip-conversion", action="store_true", help="Skip EXR conversion")
     parallel.add_argument("--colormap", default="turbo", help="PNG colormap")
-    parallel.add_argument("--blender", help="Blender 可执行文件路径")
+    parallel.add_argument("--blender", help="Path to Blender executable")
     parallel.add_argument("--no-compositor", action="store_true",
-                          help="不依赖用户预先配置的合成器，自动创建节点")
+                          help="Auto-create compositor nodes instead of requiring preconfigured compositor")
 
     return parser

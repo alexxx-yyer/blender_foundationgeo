@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""多进程并行渲染：每张 GPU 渲染不同的帧范围。
+"""Multiprocess parallel rendering: each GPU renders a separate frame range.
 
-通过 CUDA_VISIBLE_DEVICES 限制每个子进程只看到一张 GPU，并设置 FG_GPU_IDS=0，
-使 Blender 在该卡上初始化，避免 C+G 全在 GPU 0 上。
+Each subprocess is pinned to one GPU via CUDA_VISIBLE_DEVICES and FG_GPU_IDS=0
+so Blender initializes on that card instead of concentrating work on GPU 0.
 """
 
 import argparse
@@ -21,7 +21,7 @@ except ImportError:
 
 
 def get_blend_info(blend_file: str, blender_exe: str) -> dict:
-    """从 .blend 文件中读取渲染信息（分辨率、采样数等）。会启动一次 Blender，大场景可能较慢。"""
+    """Read render metadata from a .blend file (launches Blender once)."""
     script = '''
 import bpy
 import json
@@ -54,13 +54,13 @@ print("BLEND_INFO:" + json.dumps(info))
 
 
 def find_blender_executable():
-    """查找 Blender 可执行文件"""
+    """Find Blender executable."""
     possible_paths = [
-        # 用户目录下的常见安装位置
+        # Common user-local install paths.
         os.path.expanduser("~/blender-4.2.17-linux-x64/blender"),
         os.path.expanduser("~/blender-4.2.0-linux-x64/blender"),
         os.path.expanduser("~/blender-3.6.5-linux-x64/blender"),
-        # 系统路径
+        # System paths.
         "blender",
         "/usr/bin/blender",
         "/usr/local/bin/blender",
@@ -83,7 +83,7 @@ def find_blender_executable():
 
 
 def render_worker(args: dict) -> dict:
-    """单个渲染工作进程"""
+    """Single render worker process."""
     gpu_id = args["gpu_id"]
     frame_start = args["frame_start"]
     frame_end = args["frame_end"]
@@ -102,7 +102,7 @@ def render_worker(args: dict) -> dict:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.join(script_dir, "render_and_convert.py")
 
-    # 子进程只暴露一张 GPU，FG_GPU_IDS=0，使 Blender 在该卡上初始化（解决 C+G 全在 GPU 0）
+    # Expose exactly one GPU to the subprocess and force Blender to use it as device 0.
     env = os.environ.copy()
     env["FG_DEVICE"] = "GPU"
     env["FG_COMPUTE_TYPE"] = compute_type
@@ -136,7 +136,7 @@ def render_worker(args: dict) -> dict:
     if not use_compositor:
         cmd.append("--no-compositor")
 
-    print(f"[GPU {gpu_id}] 开始渲染帧 {frame_start}-{frame_end}")
+    print(f"[GPU {gpu_id}] Start rendering frames {frame_start}-{frame_end}")
     sys.stdout.flush()
 
     try:
@@ -157,12 +157,12 @@ def render_worker(args: dict) -> dict:
             if line:
                 line = line.rstrip()
                 if line:
-                    # 只显示进度条，过滤掉 Saved: 等其他信息
-                    is_progress = line.startswith("渲染进度")
-                    is_error = any(kw in line for kw in ["Error", "错误", "Warning", "警告", "Traceback", "Exception"])
+                    # Show progress and errors only.
+                    is_progress = line.startswith("Render progress")
+                    is_error = any(kw in line for kw in ["Error", "Warning", "Traceback", "Exception"])
                     
                     if is_progress:
-                        # 进度条单独一行显示
+                        # Print progress on its own line.
                         print(f"[GPU {gpu_id}] {line}")
                         sys.stdout.flush()
                     elif is_error:
@@ -173,7 +173,7 @@ def render_worker(args: dict) -> dict:
         returncode = process.wait()
 
         if returncode == 0:
-            print(f"[GPU {gpu_id}] 完成帧 {frame_start}-{frame_end}")
+            print(f"[GPU {gpu_id}] Completed frames {frame_start}-{frame_end}")
             return {
                 "gpu_id": gpu_id,
                 "frame_start": frame_start,
@@ -181,8 +181,8 @@ def render_worker(args: dict) -> dict:
                 "success": True,
             }
         else:
-            error_msg = "\n".join(stderr_output[-5:]) if stderr_output else "未知错误"
-            print(f"[GPU {gpu_id}] 失败: {error_msg[:200]}")
+            error_msg = "\n".join(stderr_output[-5:]) if stderr_output else "Unknown error"
+            print(f"[GPU {gpu_id}] Failed: {error_msg[:200]}")
             return {
                 "gpu_id": gpu_id,
                 "frame_start": frame_start,
@@ -191,7 +191,7 @@ def render_worker(args: dict) -> dict:
                 "error": error_msg,
             }
     except Exception as e:
-        print(f"[GPU {gpu_id}] 异常: {e}")
+        print(f"[GPU {gpu_id}] Exception: {e}")
         return {
             "gpu_id": gpu_id,
             "frame_start": frame_start,
@@ -203,19 +203,19 @@ def render_worker(args: dict) -> dict:
 
 def distribute_frames(frame_start: int, frame_end: int, num_gpus: int, frame_step: int = 1,
                       gpu_ids: list = None):
-    """将帧范围分配给多个 GPU
+    """Distribute frame ranges across multiple GPUs.
     
     Args:
-        frame_start: 起始帧
-        frame_end: 结束帧
-        num_gpus: GPU 数量（当 gpu_ids 为 None 时使用）
-        frame_step: 帧步长
-        gpu_ids: 指定使用的 GPU 索引列表，如 [3, 4, 5, 6, 7]
+        frame_start: Start frame.
+        frame_end: End frame.
+        num_gpus: Number of GPUs (used when gpu_ids is None).
+        frame_step: Frame step.
+        gpu_ids: Explicit GPU indices, e.g. [3, 4, 5, 6, 7].
     """
     frames = list(range(frame_start, frame_end + 1, frame_step))
     total_frames = len(frames)
     
-    # 确定要使用的 GPU 列表
+    # Determine GPU list to use.
     if gpu_ids is not None:
         actual_gpus = gpu_ids
     else:
@@ -244,7 +244,7 @@ def distribute_frames(frame_start: int, frame_end: int, num_gpus: int, frame_ste
 
 
 def get_visible_gpus():
-    """从 CUDA_VISIBLE_DEVICES 环境变量获取可见的 GPU 列表"""
+    """Read visible GPU list from CUDA_VISIBLE_DEVICES."""
     cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
     if not cuda_visible:
         return None
@@ -271,21 +271,24 @@ def parallel_render(
     blender_exe: str = None,
     use_compositor: bool = True,
 ):
-    """多 GPU 并行渲染。GPU 选择：--gpu-ids > CUDA_VISIBLE_DEVICES > --num-gpus。"""
-    # 确定要使用的 GPU 列表
+    """Parallel multi-GPU rendering.
+
+    GPU priority: --gpu-ids > CUDA_VISIBLE_DEVICES > --num-gpus.
+    """
+    # Determine GPU list to use.
     if gpu_ids is None:
-        # 尝试从环境变量获取
+        # Try environment variable first.
         env_gpus = get_visible_gpus()
         if env_gpus is not None:
             gpu_ids = env_gpus
-            print(f"从 CUDA_VISIBLE_DEVICES 检测到 GPU: {gpu_ids}")
+            print(f"Detected GPUs from CUDA_VISIBLE_DEVICES: {gpu_ids}")
         else:
             gpu_ids = list(range(num_gpus))
 
     if blender_exe is None:
         blender_exe = find_blender_executable()
         if blender_exe is None:
-            raise RuntimeError("找不到 Blender，请使用 --blender 参数指定路径")
+            raise RuntimeError("Blender not found. Use --blender to specify the executable path.")
     else:
         blender_exe = os.path.expanduser(blender_exe)
 
@@ -293,40 +296,40 @@ def parallel_render(
     output_dir = os.path.expanduser(output_dir)
 
     if not os.path.exists(blend_file):
-        raise FileNotFoundError(f"找不到文件: {blend_file}")
+        raise FileNotFoundError(f"File not found: {blend_file}")
 
     os.makedirs(output_dir, exist_ok=True)
 
-    print("正在读取场景信息...")
+    print("Reading scene metadata...")
     blend_info = get_blend_info(blend_file, blender_exe)
 
-    # 使用命令行参数覆盖或使用 .blend 文件中的值
-    render_width = width if width else blend_info.get("width", "未知")
-    render_height = height if height else blend_info.get("height", "未知")
-    samples = blend_info.get("samples", "未知")
-    engine = blend_info.get("engine", "未知")
+    # Use CLI overrides if set, otherwise use .blend values.
+    render_width = width if width else blend_info.get("width", "unknown")
+    render_height = height if height else blend_info.get("height", "unknown")
+    samples = blend_info.get("samples", "unknown")
+    engine = blend_info.get("engine", "unknown")
 
     distributions = distribute_frames(frame_start, frame_end, num_gpus, frame_step, gpu_ids)
     
-    # 获取实际使用的 GPU 列表
+    # Actual GPU list used.
     actual_gpus = [d["gpu_id"] for d in distributions]
 
     print(f"\n{'=' * 60}")
-    print("多 GPU 并行渲染")
+    print("Multi-GPU Parallel Rendering")
     print(f"{'=' * 60}")
     print(f"  Blender: {blender_exe}")
-    print(f"  输入文件: {blend_file}")
-    print(f"  输出目录: {output_dir}")
-    print(f"  渲染引擎: {engine}")
-    print(f"  分辨率: {render_width} x {render_height}")
-    print(f"  采样数: {samples}")
-    print(f"  帧范围: {frame_start} - {frame_end} (步长: {frame_step})")
-    print(f"  GPU: {','.join(map(str, actual_gpus))} (共 {len(actual_gpus)} 张)")
-    print(f"  计算类型: {compute_type}")
-    print(f"\n帧分配:")
+    print(f"  Input file: {blend_file}")
+    print(f"  Output dir: {output_dir}")
+    print(f"  Render engine: {engine}")
+    print(f"  Resolution: {render_width} x {render_height}")
+    print(f"  Samples: {samples}")
+    print(f"  Frame range: {frame_start} - {frame_end} (step: {frame_step})")
+    print(f"  GPUs: {','.join(map(str, actual_gpus))} (count: {len(actual_gpus)})")
+    print(f"  Compute type: {compute_type}")
+    print("\nFrame distribution:")
     for dist in distributions:
         frames_count = len(range(dist["frame_start"], dist["frame_end"] + 1, frame_step))
-        print(f"  GPU {dist['gpu_id']}: 帧 {dist['frame_start']}-{dist['frame_end']} ({frames_count} 帧)")
+        print(f"  GPU {dist['gpu_id']}: frames {dist['frame_start']}-{dist['frame_end']} ({frames_count} frame(s))")
     print(f"{'=' * 60}\n")
     sys.stdout.flush()
 
@@ -353,7 +356,7 @@ def parallel_render(
     with ProcessPoolExecutor(max_workers=len(tasks)) as executor:
         futures = {executor.submit(render_worker, task): task for task in tasks}
 
-        # 等待所有任务完成，子进程会实时输出进度
+        # Wait for all tasks; subprocesses stream progress.
         for future in as_completed(futures):
             result = future.result()
             results.append(result)
@@ -362,75 +365,75 @@ def parallel_render(
     fail_count = len(results) - success_count
 
     print(f"\n{'=' * 60}")
-    print("渲染完成!")
+    print("Render finished!")
     print(f"{'=' * 60}")
-    print(f"  成功: {success_count}/{len(results)}")
+    print(f"  Success: {success_count}/{len(results)}")
     if fail_count > 0:
-        print(f"  失败: {fail_count}")
+        print(f"  Failed: {fail_count}")
         for r in results:
             if not r["success"]:
-                print(f"    - GPU {r['gpu_id']}: 帧 {r['frame_start']}-{r['frame_end']}")
+                print(f"    - GPU {r['gpu_id']}: frames {r['frame_start']}-{r['frame_end']}")
     print(f"{'=' * 60}")
 
-    # EXR 转换
+    # EXR conversion.
     if not skip_conversion and success_count > 0:
         depth_exr_dir = os.path.join(output_dir, "depth", "exr")
         if os.path.isdir(depth_exr_dir):
             print(f"\n{'=' * 60}")
-            print("开始 EXR 转换...")
+            print("Starting EXR conversion...")
             print(f"{'=' * 60}")
             try:
                 import depth_convert
                 depth_convert.convert_exr_files(depth_exr_dir, colormap)
                 print(f"{'=' * 60}")
-                print("EXR 转换完成!")
+                print("EXR conversion complete!")
                 print(f"{'=' * 60}")
             except Exception as e:
-                print(f"EXR 转换失败: {e}")
+                print(f"EXR conversion failed: {e}")
 
     return all(r["success"] for r in results)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="多 GPU 并行渲染",
+        description="Parallel multi-GPU rendering",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  # 8 卡并行渲染 1-240 帧:
+Examples:
+  # Parallel render frames 1-240 on 8 GPUs:
   python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 240 --num-gpus 8
 
-  # 指定使用 GPU 3,4,5,6,7:
+  # Use GPU indices 3,4,5,6,7:
   python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 240 --gpu-ids 3,4,5,6,7
 
-  # 使用环境变量指定 GPU:
+  # Use environment variable to set GPUs:
   CUDA_VISIBLE_DEVICES=3,4,5,6,7 python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 240
 
-  # 4 卡并行，指定 OPTIX:
+  # Use OPTIX on 4 GPUs:
   python parallel_render.py input.blend -o scene/ --frame-start 1 --frame-end 100 --num-gpus 4 --compute-type OPTIX
         """,
     )
 
-    parser.add_argument("blend_file", help="输入的 .blend 文件路径")
-    parser.add_argument("-o", "--output", required=True, help="输出目录")
-    parser.add_argument("--frame-start", type=int, required=True, help="起始帧")
-    parser.add_argument("--frame-end", type=int, required=True, help="结束帧")
+    parser.add_argument("blend_file", help="Path to input .blend file")
+    parser.add_argument("-o", "--output", required=True, help="Output directory")
+    parser.add_argument("--frame-start", type=int, required=True, help="Start frame")
+    parser.add_argument("--frame-end", type=int, required=True, help="End frame")
     parser.add_argument("--num-gpus", type=int, default=None,
-                        help="使用的 GPU 数量（与 --gpu-ids 二选一，默认：自动检测或 8）")
+                        help="Number of GPUs to use (if --gpu-ids is not set; default: auto-detect or 8)")
     parser.add_argument("--gpu-ids",
-                        help="指定使用的 GPU 索引，如 '3,4,5,6,7'（也可用 CUDA_VISIBLE_DEVICES 环境变量）")
-    parser.add_argument("--frame-step", type=int, default=1, help="帧步长（默认：1）")
+                        help="GPU indices to use, e.g. '3,4,5,6,7' (or use CUDA_VISIBLE_DEVICES)")
+    parser.add_argument("--frame-step", type=int, default=1, help="Frame step (default: 1)")
     parser.add_argument("--compute-type", default="CUDA",
                         choices=["CUDA", "OPTIX", "HIP", "METAL", "ONEAPI"],
-                        help="GPU 计算类型（默认：CUDA）")
-    parser.add_argument("-c", "--camera", help="相机名称")
-    parser.add_argument("-w", "--width", type=int, help="渲染宽度")
-    parser.add_argument("--height", type=int, help="渲染高度")
-    parser.add_argument("--skip-conversion", action="store_true", help="跳过 EXR 转换")
+                        help="GPU compute backend (default: CUDA)")
+    parser.add_argument("-c", "--camera", help="Camera name")
+    parser.add_argument("-w", "--width", type=int, help="Render width")
+    parser.add_argument("--height", type=int, help="Render height")
+    parser.add_argument("--skip-conversion", action="store_true", help="Skip EXR conversion")
     parser.add_argument("--colormap", default="turbo", help="PNG colormap")
-    parser.add_argument("--blender", help="Blender 可执行文件路径")
+    parser.add_argument("--blender", help="Path to Blender executable")
     parser.add_argument("--no-compositor", action="store_true",
-                        help="不依赖用户预先配置的合成器，自动创建节点")
+                        help="Auto-create compositor nodes instead of requiring preconfigured compositor")
 
     args = parser.parse_args()
     gpu_ids = None

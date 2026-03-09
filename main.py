@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""统一入口：渲染 + 转换 + 独立转换工具"""
+"""Unified entrypoint: render + conversion tools."""
 
 import os
 import sys
@@ -32,7 +32,7 @@ def main():
         device = args.device or (config.get("device") if config else None)
         compute_type = args.compute_type or (config.get("compute_type") if config else None)
         gpu_ids = getattr(args, "gpu_ids", None) or (config.get("gpu_ids") if config else None)
-        # 如果指定了 compute_type 但没有指定 device，自动设置为 GPU
+        # If compute_type is set without device, default device to GPU.
         if compute_type and not device:
             device = "GPU"
         if device:
@@ -98,7 +98,7 @@ def main():
 
     if args.command == "parallel":
         import parallel_render
-        # 解析 gpu_ids
+        # Parse gpu_ids
         gpu_ids = None
         if args.gpu_ids:
             gpu_ids = [int(x.strip()) for x in args.gpu_ids.split(",")]
@@ -125,7 +125,7 @@ def main():
             sys.exit(1)
         return
 
-    parser.error("未知命令")
+    parser.error("Unknown command")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""读取并显示NPY文件内容"""
+"""Read and inspect NPY file contents."""
 
 import os
 import argparse
@@ -8,26 +8,26 @@ import numpy as np
 
 def read_npy(npy_path: str, show_image: bool = False):
     """
-    读取NPY文件并显示信息
+    Read an NPY file and print summary stats.
     
     Args:
-        npy_path: NPY文件路径
-        show_image: 是否显示为图像
+        npy_path: Path to NPY file.
+        show_image: Whether to display as an image.
     """
     npy_path = os.path.expanduser(npy_path)
     
     if not os.path.exists(npy_path):
-        raise FileNotFoundError(f"找不到文件: {npy_path}")
+        raise FileNotFoundError(f"File not found: {npy_path}")
     
     arr = np.load(npy_path)
     
-    print(f"文件: {npy_path}")
-    print(f"形状: {arr.shape}")
-    print(f"数据类型: {arr.dtype}")
-    print(f"最小值: {arr.min():.6f}")
-    print(f"最大值: {arr.max():.6f}")
-    print(f"均值: {arr.mean():.6f}")
-    print(f"标准差: {arr.std():.6f}")
+    print(f"File: {npy_path}")
+    print(f"Shape: {arr.shape}")
+    print(f"Dtype: {arr.dtype}")
+    print(f"Min: {arr.min():.6f}")
+    print(f"Max: {arr.max():.6f}")
+    print(f"Mean: {arr.mean():.6f}")
+    print(f"Std: {arr.std():.6f}")
     
     if show_image:
         import matplotlib.pyplot as plt
@@ -47,7 +47,7 @@ def read_npy(npy_path: str, show_image: bool = False):
                 plt.imshow(arr[:, :, 0], cmap='viridis')
                 plt.colorbar(label='Depth')
         else:
-            print(f"无法显示 {arr.ndim} 维数组为图像")
+            print(f"Cannot display {arr.ndim}D array as an image")
             return arr
         
         plt.title(os.path.basename(npy_path))
@@ -58,9 +58,9 @@ def read_npy(npy_path: str, show_image: bool = False):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="读取并显示NPY文件")
-    parser.add_argument("input", help="输入的NPY文件路径")
-    parser.add_argument("-s", "--show", action="store_true", help="显示为图像")
+    parser = argparse.ArgumentParser(description="Read and inspect an NPY file")
+    parser.add_argument("input", help="Path to input NPY file")
+    parser.add_argument("-s", "--show", action="store_true", help="Display as an image")
     
     args = parser.parse_args()
     

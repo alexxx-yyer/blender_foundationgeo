@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""递归扫描目录下所有 depth.png，统计深度分布。
+"""Recursively scan all depth.png files and summarize depth distribution.
 
-根目录下的一级文件夹视为一个数据集，汇总表第一列为该文件夹名；
-可统计每个深度区间对应的图片数量并绘制深度分布图。
+Each first-level folder under the root is treated as one dataset.
+The script can also aggregate image counts by depth bins and plot distributions.
 
-depth.png 为 16bit 编码深度图，解码方式与 read_depth.py 一致。
+depth.png is assumed to use the same 16-bit encoding decoded by read_depth.py.
 
-用法:
-  python scan_depth_distribution.py /path/to/root   # 如 MoGe/data/eval/ 或 processed/
+Usage:
+  python scan_depth_distribution.py /path/to/root   # e.g. MoGe/data/eval/ or processed/
   python scan_depth_distribution.py /path/to/root --output depths.csv
-  python scan_depth_distribution.py /path/to/root -q   # 只输出汇总
-  python scan_depth_distribution.py /path/to/root --plot   # 统计深度并画分布图
+  python scan_depth_distribution.py /path/to/root -q   # summary only
+  python scan_depth_distribution.py /path/to/root --plot   # plot depth distribution
 """
 
 import argparse
@@ -21,7 +21,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import cpu_count
 from pathlib import Path
 
-# 允许从任意工作目录运行时导入同目录的 read_depth
+# Allow importing sibling read_depth.py from any working directory.
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
@@ -34,18 +34,25 @@ except ImportError:
 import numpy as np
 
 
+def get_visualization_dir() -> Path:
+    """Return the standard output directory for generated plots/statistics."""
+    out_dir = Path(os.getcwd()) / "artifacts" / "visualization"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
 def find_depth_pngs(root: str):
-    """递归查找 root 下所有 depth.png 路径。"""
+    """Recursively find all depth.png under root."""
     root = Path(root).resolve()
     if not root.is_dir():
-        raise NotADirectoryError(f"不是目录: {root}")
+        raise NotADirectoryError(f"Not a directory: {root}")
     return sorted(root.rglob("depth.png"))
 
 
 def get_depth_stats(depth_path: str) -> dict | None:
-    """从 depth.png 读取并解码，返回该帧的深度统计；失败返回 None。"""
+    """Decode one depth.png and return stats for that frame; None on failure."""
     if read_depth_png is None:
-        raise RuntimeError("无法导入 read_depth.read_depth_png，请确保 read_depth.py 在同目录")
+        raise RuntimeError("Failed to import read_depth.read_depth_png. Ensure read_depth.py is in the same directory.")
     try:
         depth_meters, near, far = read_depth_png(depth_path)
     except Exception:
@@ -74,7 +81,11 @@ def get_depth_stats(depth_path: str) -> dict | None:
 
 
 def _worker(args: tuple) -> tuple:
-    """多进程 worker：处理单张 depth.png。返回 (rel_str, dataset_name, stats_dict or None)。"""
+    """Multiprocessing worker for one depth.png.
+
+    Returns:
+        (relative_path, dataset_name, stats_dict_or_none)
+    """
     depth_path_str, root_str = args
     root_resolved = Path(root_str).resolve()
     path = Path(depth_path_str)
@@ -93,57 +104,57 @@ def _worker(args: tuple) -> tuple:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="递归扫描目录下 depth.png，统计深度分布"
+        description="Recursively scan depth.png files and summarize depth distribution"
     )
     parser.add_argument(
         "root",
         nargs="?",
         default=os.getcwd(),
-        help="要扫描的根目录（默认当前目录）",
+        help="Root directory to scan (default: current directory)",
     )
     parser.add_argument(
         "--output", "-o",
         default=None,
-        help="可选：将每帧结果写入 CSV（列: dataset,rel,depth_min,depth_max,depth_mean,valid_ratio）",
+        help="Optional: write per-frame results to CSV (dataset,rel,depth_min,depth_max,depth_mean,valid_ratio)",
     )
     parser.add_argument(
         "--quiet", "-q",
         action="store_true",
-        help="只输出有问题的文件或统计，不逐行打印",
+        help="Summary/problem output only (no per-file lines)",
     )
     parser.add_argument(
         "--plot", "-p",
         action="store_true",
-        help="统计深度分布并绘制分布图",
+        help="Aggregate depth values and generate a distribution plot",
     )
     parser.add_argument(
         "--plot-output",
         default=None,
-        help="分布图保存路径（默认: depth_distribution.png）",
+        help="Output path for distribution plot (default: artifacts/visualization/depth_distribution.png)",
     )
     parser.add_argument(
         "--bins",
         type=int,
         default=50,
-        help="分布图直方图 bin 数量（默认 50）",
+        help="Number of histogram bins (default: 50)",
     )
     parser.add_argument(
         "--depth-max",
         type=float,
         default=None,
-        help="分布图横轴最大深度（米），超过的归入最后一 bin；默认用数据最大值",
+        help="Maximum x-axis depth (meters); values beyond are clipped to the last bin",
     )
     parser.add_argument(
         "--workers", "-j",
         type=int,
         default=None,
-        help="并行进程数（默认: CPU 内核数 - 1）",
+        help="Number of worker processes (default: CPU cores - 1)",
     )
     args = parser.parse_args()
 
     depth_files = find_depth_pngs(args.root)
     if not depth_files:
-        print(f"在 {args.root} 下未找到任何 depth.png")
+        print(f"No depth.png files found under: {args.root}")
         return
 
     root_resolved = Path(args.root).resolve()
@@ -155,7 +166,7 @@ def main():
     failed = []
     total = len(tasks)
 
-    print(f"扫描 {total} 个 depth.png，使用 {num_workers} 个进程 …")
+    print(f"Scanning {total} depth.png file(s) with {num_workers} worker(s)...")
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {executor.submit(_worker, t): t for t in tasks}
         completed = 0
@@ -176,28 +187,30 @@ def main():
                 if not args.quiet:
                     print(f"{rel_str}\tmin={stats['depth_min']:.3f}\tmax={stats['depth_max']:.3f}\tmean={stats['depth_mean']:.3f}\tvalid={stats['valid_ratio']*100:.1f}%")
             if completed % 1000 == 0 or completed == total:
-                print(f"进度: {completed}/{total} ({100*completed/total:.1f}%)")
+                print(f"Progress: {completed}/{total} ({100*completed/total:.1f}%)")
 
     results.sort(key=lambda r: (r[0], r[1]))
 
     if failed and not args.quiet:
-        print("\n无法解析深度的文件:")
+        print("\nFiles with unreadable/invalid depth:")
         for r in failed:
             print(f"  {r}")
 
-    # 按数据集汇总：每个数据集的整体深度范围
+    # Dataset-level summary: overall depth range and mean.
     dataset_agg = defaultdict(lambda: {"min": [], "max": [], "mean": []})
     for r in results:
         dataset_agg[r[0]]["min"].append(r[2])
         dataset_agg[r[0]]["max"].append(r[3])
         dataset_agg[r[0]]["mean"].append(r[4])
-    print(f"\n共 {len(depth_files)} 个 depth.png，成功 {len(results)}，失败 {len(failed)}")
-    print("\n数据集\t深度min(m)\t深度max(m)\t深度mean(m)")
+    print(f"\nTotal depth.png: {len(depth_files)}, succeeded: {len(results)}, failed: {len(failed)}")
+    print("\nDataset\tdepth_min(m)\tdepth_max(m)\tdepth_mean(m)")
     for dataset_name in sorted(dataset_agg.keys()):
         agg = dataset_agg[dataset_name]
         dmin, dmax = min(agg["min"]), max(agg["max"])
         dmean = np.mean(agg["mean"])
         print(f"{dataset_name}\t{dmin:.3f}\t{dmax:.3f}\t{dmean:.3f}")
+
+    vis_dir = get_visualization_dir()
 
     if args.output and results:
         out_path = Path(args.output)
@@ -206,33 +219,33 @@ def main():
             f.write("dataset\trel\tdepth_min\tdepth_max\tdepth_mean\tvalid_ratio\n")
             for r in results:
                 f.write(f"{r[0]}\t{r[1]}\t{r[2]:.6f}\t{r[3]:.6f}\t{r[4]:.6f}\t{r[5]:.4f}\n")
-        print(f"\n已写入: {out_path}")
+        print(f"\nWritten: {out_path}")
 
-    # 深度统计：按 (数据集, depth_mean) 统计图片数量，保存 CSV（与 fx_stats 一致带数据集）
+    # Depth-count summary by (dataset, rounded depth_mean), saved to CSV.
     if results:
-        # (dataset, depth_mean 保留三位小数) -> count
+        # (dataset, depth_mean rounded to 3 decimals) -> count
         depth_counts = Counter((r[0], round(r[4], 3)) for r in results)
-        print("\n--- 深度 (depth_mean) 图片数量统计（按数据集、depth_mean 排序）---")
-        print("数据集\tdepth_mean(m)\t图片数量")
-        stats_path = Path(os.getcwd()) / "depth_stats.csv"
+        print("\n--- Depth (depth_mean) image counts by dataset ---")
+        print("Dataset\tdepth_mean(m)\tImage count")
+        stats_path = vis_dir / "depth_stats.csv"
         with open(stats_path, "w") as f:
             f.write("dataset,depth_mean,count\n")
             for (dataset_name, dmean) in sorted(depth_counts.keys()):
                 c = depth_counts[(dataset_name, dmean)]
                 f.write(f"{dataset_name},{dmean:.3f},{c}\n")
                 print(f"{dataset_name}\t{dmean:.3f}\t{c}")
-        print(f"\n已保存深度统计: {stats_path}")
+        print(f"\nSaved depth stats: {stats_path}")
 
-    # 绘制深度分布图：每个数据集一条曲线，横轴深度(m)，纵轴 ln(数量)
+    # Plot depth distribution: one curve per dataset, x=depth(m), y=ln(count).
     if args.plot and results:
         try:
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
         except ImportError:
-            print("\n未安装 matplotlib，无法绘图。可执行: pip install matplotlib")
+            print("\nmatplotlib is not installed. Install with: pip install matplotlib")
         else:
-            # 横轴深度限制在 0.01–100 m，以 10 为底对数刻度 (10^-2 到 10^2)
+            # Plot depth range in log scale.
             d_min_plot = 1e-2   # 0.01 m
             d_max_plot = 1e3   # 1000 m
             bins = np.logspace(-3, 3, args.bins + 1)
@@ -260,11 +273,11 @@ def main():
             ax.legend(loc="best", fontsize=8)
             ax.grid(True, alpha=0.3)
             plt.tight_layout()
-            plot_path = Path(args.plot_output) if args.plot_output else Path(os.getcwd()) / "depth_distribution.png"
+            plot_path = Path(args.plot_output) if args.plot_output else vis_dir / "depth_distribution.png"
             plot_path.parent.mkdir(parents=True, exist_ok=True)
             plt.savefig(plot_path, dpi=150)
             plt.close()
-            print(f"已保存深度分布图: {plot_path}")
+            print(f"Saved depth distribution plot: {plot_path}")
 
 
 if __name__ == "__main__":

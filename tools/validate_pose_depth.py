@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""验证位姿和深度数据的准确性"""
+"""Validate pose and depth data quality"""
 
 import argparse
 import json
@@ -24,7 +24,7 @@ except ImportError:
 
 
 def load_pose(pose_path: Path) -> Optional[np.ndarray]:
-    """加载位姿矩阵 (4x4)"""
+    """Load pose matrix (4x4)"""
     try:
         pose = np.loadtxt(pose_path)
         if pose.shape != (4, 4):
@@ -35,7 +35,7 @@ def load_pose(pose_path: Path) -> Optional[np.ndarray]:
 
 
 def load_focal(focal_path: Path) -> Optional[Tuple[float, float]]:
-    """加载焦距 (fx, fy)"""
+    """Load focal values (fx, fy)"""
     try:
         with open(focal_path, 'r') as f:
             line = f.readline().strip()
@@ -52,7 +52,7 @@ def load_focal(focal_path: Path) -> Optional[Tuple[float, float]]:
 
 
 def load_depth(depth_path: Path) -> Optional[np.ndarray]:
-    """加载深度图"""
+    """Load depth map"""
     try:
         depth = np.load(depth_path)
         return depth
@@ -61,23 +61,23 @@ def load_depth(depth_path: Path) -> Optional[np.ndarray]:
 
 
 def validate_pose_format(pose: np.ndarray) -> Dict:
-    """验证位姿格式"""
+    """Validate pose format"""
     errors = []
     warnings = []
     
-    # 检查维度
+    # Check shape
     if pose.shape != (4, 4):
-        errors.append(f"位姿矩阵维度错误: {pose.shape}, 期望 (4, 4)")
+        errors.append(f"Invalid pose matrix shape: {pose.shape}, expected (4, 4)")
         return {"valid": False, "errors": errors, "warnings": warnings}
     
-    # 检查数值有效性
+    # Check numeric validity
     if np.any(np.isnan(pose)) or np.any(np.isinf(pose)):
-        errors.append("位姿矩阵包含 NaN 或 Inf")
+        errors.append("Pose matrix contains NaN or Inf")
     
-    # 检查最后一行
+    # Check last homogeneous row
     expected_last_row = np.array([0.0, 0.0, 0.0, 1.0])
     if not np.allclose(pose[3, :], expected_last_row, atol=1e-6):
-        warnings.append(f"位姿矩阵最后一行不符合齐次坐标格式: {pose[3, :]}")
+        warnings.append(f"Pose matrix last row is not homogeneous: {pose[3, :]}")
     
     return {
         "valid": len(errors) == 0,
@@ -87,34 +87,34 @@ def validate_pose_format(pose: np.ndarray) -> Dict:
 
 
 def validate_pose_geometry(pose: np.ndarray) -> Dict:
-    """验证位姿几何性质"""
+    """Validate pose geometry"""
     errors = []
     warnings = []
     
-    # 提取旋转矩阵和平移向量
+    # Extract rotation and translation
     R = pose[:3, :3]
     t = pose[:3, 3]
     
-    # 检查旋转矩阵正交性: R^T R = I
+    # Check rotation orthogonality: R^T R = I
     RTR = R.T @ R
     I = np.eye(3)
     ortho_error = np.max(np.abs(RTR - I))
     if ortho_error > 1e-4:
-        errors.append(f"旋转矩阵不正交: 最大误差 = {ortho_error:.6f}")
+        errors.append(f"Rotation matrix is not orthogonal: max error = {ortho_error:.6f}")
     elif ortho_error > 1e-6:
-        warnings.append(f"旋转矩阵正交性误差较大: {ortho_error:.6f}")
+        warnings.append(f"Large rotation orthogonality error: {ortho_error:.6f}")
     
-    # 检查行列式: det(R) ≈ 1
+    # Check determinant: det(R) ≈ 1
     det_R = np.linalg.det(R)
     if abs(det_R - 1.0) > 1e-4:
-        errors.append(f"旋转矩阵行列式不为1: det(R) = {det_R:.6f}")
+        errors.append(f"Rotation determinant is not 1: det(R) = {det_R:.6f}")
     elif abs(det_R - 1.0) > 1e-6:
-        warnings.append(f"旋转矩阵行列式偏差: det(R) = {det_R:.6f}")
+        warnings.append(f"Rotation determinant deviation: det(R) = {det_R:.6f}")
     
-    # 检查平移向量合理性（可选：检查是否在合理范围内）
+    # Check translation magnitude reasonableness
     t_norm = np.linalg.norm(t)
     if t_norm > 1e6:
-        warnings.append(f"平移向量模长异常: ||t|| = {t_norm:.2f}")
+        warnings.append(f"Abnormal translation magnitude: ||t|| = {t_norm:.2f}")
     
     return {
         "valid": len(errors) == 0,
@@ -127,14 +127,14 @@ def validate_pose_geometry(pose: np.ndarray) -> Dict:
 
 
 def validate_pose_sequence(poses: List[np.ndarray]) -> Dict:
-    """验证位姿序列连续性"""
+    """Validate pose sequence continuity"""
     errors = []
     warnings = []
     
     if len(poses) < 2:
         return {"valid": True, "errors": [], "warnings": []}
     
-    # 计算相邻帧之间的相对变换
+    # Compute relative transforms between adjacent frames
     relative_transforms = []
     position_changes = []
     rotation_changes = []
@@ -143,28 +143,28 @@ def validate_pose_sequence(poses: List[np.ndarray]) -> Dict:
         pose_i = poses[i]
         pose_j = poses[i + 1]
         
-        # 相对变换: T_rel = T_j @ T_i^{-1}
+        # Relative transform: T_rel = T_j @ T_i^{-1}
         pose_i_inv = np.linalg.inv(pose_i)
         T_rel = pose_j @ pose_i_inv
         
         relative_transforms.append(T_rel)
         
-        # 提取位置变化
+        # Extract positional change
         pos_i = pose_i[:3, 3]
         pos_j = pose_j[:3, 3]
         pos_change = np.linalg.norm(pos_j - pos_i)
         position_changes.append(pos_change)
         
-        # 提取旋转变化（使用旋转矩阵的Frobenius范数）
+        # Extract rotation change
         R_i = pose_i[:3, :3]
         R_j = pose_j[:3, :3]
         R_rel = T_rel[:3, :3]
-        # 计算旋转角度（从旋转矩阵）
+        # Compute rotation angle from matrix
         trace = np.trace(R_rel)
         angle = np.arccos(np.clip((trace - 1) / 2, -1, 1))
         rotation_changes.append(angle)
     
-    # 检测异常跳跃
+    # Detect abnormal jumps
     if position_changes:
         pos_mean = np.mean(position_changes)
         pos_std = np.std(position_changes)
@@ -172,7 +172,7 @@ def validate_pose_sequence(poses: List[np.ndarray]) -> Dict:
         
         for i, pos_change in enumerate(position_changes):
             if pos_change > pos_threshold:
-                warnings.append(f"帧 {i+1}->{i+2} 位置变化异常: {pos_change:.4f} (均值: {pos_mean:.4f}, 阈值: {pos_threshold:.4f})")
+                warnings.append(f"Frame {i+1}->{i+2} Abnormal position change: {pos_change:.4f} (mean: {pos_mean:.4f}, threshold: {pos_threshold:.4f})")
     
     if rotation_changes:
         rot_mean = np.mean(rotation_changes)
@@ -181,7 +181,7 @@ def validate_pose_sequence(poses: List[np.ndarray]) -> Dict:
         
         for i, rot_change in enumerate(rotation_changes):
             if rot_change > rot_threshold:
-                warnings.append(f"帧 {i+1}->{i+2} 旋转变化异常: {np.degrees(rot_change):.2f}° (均值: {np.degrees(rot_mean):.2f}°, 阈值: {np.degrees(rot_threshold):.2f}°)")
+                warnings.append(f"Frame {i+1}->{i+2} Abnormal rotation change: {np.degrees(rot_change):.2f}° (mean: {np.degrees(rot_mean):.2f}°, threshold: {np.degrees(rot_threshold):.2f}°)")
     
     return {
         "valid": len(errors) == 0,
@@ -195,26 +195,26 @@ def validate_pose_sequence(poses: List[np.ndarray]) -> Dict:
 
 
 def validate_depth_numerical(depth: np.ndarray) -> Dict:
-    """验证深度数值"""
+    """Validate depth numerics"""
     errors = []
     warnings = []
     stats = {}
     
-    # 检查数值有效性
+    # Check numeric validity
     if np.any(np.isnan(depth)):
         nan_count = np.sum(np.isnan(depth))
-        errors.append(f"深度图包含 {nan_count} 个 NaN 值")
+        errors.append(f"Depth map contains {nan_count} NaN value(s)")
     
     if np.any(np.isinf(depth)):
         inf_count = np.sum(np.isinf(depth))
-        errors.append(f"深度图包含 {inf_count} 个 Inf 值")
+        errors.append(f"Depth map contains {inf_count} Inf value(s)")
     
-    # 检查非负性
+    # Check non-negativity
     negative_count = np.sum(depth < 0)
     if negative_count > 0:
-        errors.append(f"深度图包含 {negative_count} 个负值")
+        errors.append(f"Depth map contains {negative_count} negative value(s)")
     
-    # 统计信息
+    # Statistics
     valid_depth = depth[np.isfinite(depth) & (depth >= 0)]
     if len(valid_depth) > 0:
         stats["min"] = float(np.min(valid_depth))
@@ -225,20 +225,20 @@ def validate_depth_numerical(depth: np.ndarray) -> Dict:
         stats["total_pixels"] = int(depth.size)
         stats["invalid_ratio"] = float(1.0 - len(valid_depth) / depth.size)
         
-        # 检查深度范围合理性
+        # Check depth range reasonableness
         if stats["max"] > 1e6:
-            # 检查异常值比例
+            # Check outlier ratio
             large_depth_count = np.sum(valid_depth > 1e6)
             large_depth_ratio = large_depth_count / len(valid_depth) if len(valid_depth) > 0 else 0
-            if large_depth_ratio > 0.01:  # 如果超过1%的像素异常
-                warnings.append(f"深度最大值异常: {stats['max']:.2e} ({large_depth_ratio*100:.2f}% 像素 > 1e6)")
+            if large_depth_ratio > 0.01:  # if more than 1% pixels are outliers
+                warnings.append(f"Abnormal depth max: {stats['max']:.2e} ({large_depth_ratio*100:.2f}% pixels > 1e6)")
             elif large_depth_count > 0:
-                # 如果只有少量异常像素，可能是噪声，只作为信息提示
-                warnings.append(f"深度最大值异常: {stats['max']:.2e} (仅 {large_depth_count} 个像素，可能是噪声或渲染错误)")
+                # if only a few outliers, keep as informational warning
+                warnings.append(f"Abnormal depth max: {stats['max']:.2e} (only {large_depth_count} pixels, likely noise or render artifact)")
         if stats["min"] < 0.01:
-            warnings.append(f"深度最小值过小: {stats['min']:.6f}")
+            warnings.append(f"Depth minimum is too small: {stats['min']:.6f}")
     else:
-        errors.append("深度图没有有效像素")
+        errors.append("Depth map has no valid pixels")
         stats = {}
     
     return {
@@ -250,36 +250,36 @@ def validate_depth_numerical(depth: np.ndarray) -> Dict:
 
 
 def validate_depth_geometry(depth: np.ndarray) -> Dict:
-    """验证深度几何性质"""
+    """Validate depth geometry"""
     errors = []
     warnings = []
     
-    # 计算深度梯度
+    # Compute depth gradients
     grad_x = np.gradient(depth, axis=1)
     grad_y = np.gradient(depth, axis=0)
     grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
     
-    # 检查深度梯度合理性
+    # Check depth gradient reasonableness
     valid_mask = np.isfinite(depth) & (depth > 0)
     if np.any(valid_mask):
         valid_grad = grad_magnitude[valid_mask]
         max_grad = np.max(valid_grad)
         mean_grad = np.mean(valid_grad)
         
-        # 检测异常大的梯度（可能是深度不连续）
-        # 注意：物体边缘和遮挡边界通常会有较大的深度梯度，这是正常的
+        # Detect unusually large gradients
+        # Note: object edges and occlusion boundaries can naturally have large gradients
         grad_threshold = mean_grad + 5 * np.std(valid_grad)
         large_grad_count = np.sum(valid_grad > grad_threshold)
         large_grad_ratio = large_grad_count / len(valid_grad) if len(valid_grad) > 0 else 0
         
-        # 只有当异常梯度比例过高时才警告（>10%）
+        # Warn only when abnormal gradient ratio is high (>10%)
         if large_grad_ratio > 0.1:
-            warnings.append(f"检测到 {large_grad_count} 个异常大的深度梯度 ({large_grad_ratio*100:.1f}%, 阈值: {grad_threshold:.4f}) - 可能是物体边缘或遮挡边界")
+            warnings.append(f"Detected {large_grad_count} abnormally large depth gradients ({large_grad_ratio*100:.1f}%, threshold: {grad_threshold:.4f}) - may correspond to edges or occlusions")
         elif large_grad_count > 0:
-            # 如果比例不高，只作为信息记录，不产生警告
+            # if ratio is low, keep informational only
             pass
     else:
-        errors.append("无法计算深度梯度：没有有效像素")
+        errors.append("Cannot compute depth gradients: no valid pixels")
     
     return {
         "valid": len(errors) == 0,
@@ -292,35 +292,35 @@ def validate_depth_geometry(depth: np.ndarray) -> Dict:
 
 def validate_geometry_consistency(poses: List[np.ndarray], focals: List[Tuple[float, float]],
                                   depths: List[np.ndarray], width: int, height: int) -> Dict:
-    """验证几何一致性（3D重建和投影验证）"""
+    """Validate geometric consistency (3D reconstruction and projection)"""
     errors = []
     warnings = []
     
     if len(poses) == 0 or len(focals) == 0 or len(depths) == 0:
-        errors.append("缺少必要的位姿、焦距或深度数据")
+        errors.append("Missing required pose/focal/depth data")
         return {"valid": False, "errors": errors, "warnings": warnings}
     
     if len(poses) != len(focals) or len(poses) != len(depths):
-        errors.append(f"数据数量不匹配: poses={len(poses)}, focals={len(focals)}, depths={len(depths)}")
+        errors.append(f"Data count mismatch: poses={len(poses)}, focals={len(focals)}, depths={len(depths)}")
         return {"valid": False, "errors": errors, "warnings": warnings}
     
-    # 选择几个关键点进行验证（例如：图像中心、四个角点）
+    # Select key pixels for validation (image center and four corners).
     sample_points = [
-        (width // 2, height // 2),  # 中心
-        (width // 4, height // 4),  # 左上
-        (3 * width // 4, height // 4),  # 右上
-        (width // 4, 3 * height // 4),  # 左下
-        (3 * width // 4, 3 * height // 4),  # 右下
+        (width // 2, height // 2),  # Center
+        (width // 4, height // 4),  # Top-left
+        (3 * width // 4, height // 4),  # Top-right
+        (width // 4, 3 * height // 4),  # Bottom-left
+        (3 * width // 4, 3 * height // 4),  # Bottom-right
     ]
     
-    # 对每个视角，重建3D点并转换到世界坐标系
+    # Reconstruct 3D points per view and transform to world space
     world_points_all = []
     
     for frame_idx, (pose, focal, depth) in enumerate(zip(poses, focals, depths)):
         fx, fy = focal
-        cx, cy = width / 2, height / 2  # 假设主点在图像中心
+        cx, cy = width / 2, height / 2  # Assume principal point at image center.
         
-        # 重建3D点（相机坐标系）
+        # Reconstruct 3D points in camera coordinates
         camera_points = []
         for u, v in sample_points:
             if 0 <= u < depth.shape[1] and 0 <= v < depth.shape[0]:
@@ -331,14 +331,14 @@ def validate_geometry_consistency(poses: List[np.ndarray], focals: List[Tuple[fl
                     z = d
                     camera_points.append(np.array([x, y, z, 1.0]))
         
-        # 转换到世界坐标系
+        # Transform to world coordinates
         for pt_cam in camera_points:
             pt_world = np.linalg.inv(pose) @ pt_cam
             world_points_all.append((frame_idx, pt_world[:3]))
     
-    # 检查多视角下同一3D点的一致性（简化：检查相邻帧的重建点是否接近）
+    # Check multi-view consistency (simplified with adjacent frame proximity).
     if len(world_points_all) > 0:
-        # 计算所有点的空间分布
+        # Compute spatial distribution of reconstructed points
         points = np.array([pt[1] for pt in world_points_all])
         if len(points) > 1:
             point_distances = []
@@ -349,8 +349,8 @@ def validate_geometry_consistency(poses: List[np.ndarray], focals: List[Tuple[fl
             
             if point_distances:
                 mean_dist = np.mean(point_distances)
-                if mean_dist > 100:  # 阈值可调
-                    warnings.append(f"重建的3D点分布异常分散: 平均距离 = {mean_dist:.2f}")
+                if mean_dist > 100:  # Tunable threshold.
+                    warnings.append(f"Reconstructed 3D points are abnormally scattered: mean distance = {mean_dist:.2f}")
     
     return {
         "valid": len(errors) == 0,
@@ -717,11 +717,11 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
                  pointcloud_max_points: Optional[int] = None,
                  pointcloud_depth_min: Optional[float] = None,
                  pointcloud_depth_max: Optional[float] = None) -> Dict:
-    """执行完整验证"""
+    """Run full validation"""
     data_dir = Path(data_dir).expanduser().resolve()
     
     if not data_dir.exists():
-        raise FileNotFoundError(f"目录不存在: {data_dir}")
+        raise FileNotFoundError(f"Directory does not exist: {data_dir}")
     
     results = {
         "data_dir": str(data_dir),
@@ -731,25 +731,25 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
         "summary": {}
     }
     
-    # 查找所有文件
+    # Find all files
     pose_dir = data_dir / "pose"
     focal_dir = data_dir / "focal"
     depth_dir = data_dir / "depth" / "npy"
     rgb_dir = data_dir / "rgb"
     
-    # 收集所有帧号
+    # Collect all frame indices.
     if pose_dir.exists():
         pose_files = sorted(pose_dir.glob("*.txt"))
         frame_numbers = [int(f.stem) for f in pose_files]
     else:
         frame_numbers = []
     
-    print(f"找到 {len(frame_numbers)} 帧数据")
+    print(f"Found {len(frame_numbers)} frame(s) of data")
     print("=" * 60)
     
-    # 验证位姿
+    # Validate poses.
     if not depth_only:
-        print("\n验证位姿...")
+        print("\nValidating poses...")
         poses = []
         focals = []
         pose_format_results = []
@@ -760,31 +760,31 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
             focal_path = focal_dir / f"{frame_num:06d}.txt"
             
             if not pose_path.exists():
-                print(f"  警告: 位姿文件不存在: {pose_path.name}")
+                print(f"  Warning: pose file missing: {pose_path.name}")
                 continue
             
             pose = load_pose(pose_path)
             if pose is None:
-                print(f"  错误: 无法加载位姿: {pose_path.name}")
+                print(f"  Error: failed to load pose: {pose_path.name}")
                 continue
             
-            # 格式验证
+            # Format validation
             format_result = validate_pose_format(pose)
             pose_format_results.append((frame_num, format_result))
             
-            # 几何验证
+            # Geometry validation
             geometry_result = validate_pose_geometry(pose)
             pose_geometry_results.append((frame_num, geometry_result))
             
             poses.append(pose)
             
-            # 加载焦距
+            # Load focal values
             if focal_path.exists():
                 focal = load_focal(focal_path)
                 if focal:
                     focals.append(focal)
         
-        # 序列连续性验证
+        # Sequence continuity validation
         sequence_result = validate_pose_sequence(poses) if len(poses) > 1 else {}
         
         results["pose_validation"] = {
@@ -794,18 +794,18 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
             "total_frames": len(poses)
         }
         
-        # 统计错误和警告
+        # Count errors and warnings
         total_errors = sum(len(r[1]["errors"]) for r in pose_format_results + pose_geometry_results)
         total_warnings = sum(len(r[1]["warnings"]) for r in pose_format_results + pose_geometry_results)
         if sequence_result:
             total_errors += len(sequence_result.get("errors", []))
             total_warnings += len(sequence_result.get("warnings", []))
         
-        print(f"  位姿验证完成: {len(poses)} 帧, {total_errors} 个错误, {total_warnings} 个警告")
+        print(f"  Pose validation complete: {len(poses)} frame(s), {total_errors} error(s), {total_warnings} warning(s)")
     
-    # 验证深度
+    # Validate depth.
     if not pose_only:
-        print("\n验证深度...")
+        print("\nValidating depth...")
         depths = []
         depth_numerical_results = []
         depth_geometry_results = []
@@ -814,31 +814,31 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
             depth_path = depth_dir / f"{frame_num:06d}.npy"
             
             if not depth_path.exists():
-                print(f"  警告: 深度文件不存在: {depth_path.name}")
+                print(f"  Warning: depth file missing: {depth_path.name}")
                 continue
             
             depth = load_depth(depth_path)
             if depth is None:
-                print(f"  错误: 无法加载深度: {depth_path.name}")
+                print(f"  Error: failed to load depth: {depth_path.name}")
                 continue
             
-            # 数值验证
+            # Numeric validation
             numerical_result = validate_depth_numerical(depth)
             depth_numerical_results.append((frame_num, numerical_result))
             
-            # 打印数值验证的警告
+            # Print numeric validation warnings.
             if numerical_result.get("warnings"):
                 for warning in numerical_result["warnings"]:
-                    print(f"  警告 [帧 {frame_num:06d} 数值]: {warning}")
+                    print(f"  Warning [frame {frame_num:06d} numeric]: {warning}")
             
-            # 几何验证
+            # Geometry validation
             geometry_result = validate_depth_geometry(depth)
             depth_geometry_results.append((frame_num, geometry_result))
             
-            # 打印几何验证的警告
+            # Print geometry validation warnings.
             if geometry_result.get("warnings"):
                 for warning in geometry_result["warnings"]:
-                    print(f"  警告 [帧 {frame_num:06d} 几何]: {warning}")
+                    print(f"  Warning [frame {frame_num:06d} geometry]: {warning}")
             
             depths.append(depth)
         
@@ -848,30 +848,30 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
             "total_frames": len(depths)
         }
         
-        # 统计错误和警告
+        # Count errors and warnings
         total_errors = sum(len(r[1]["errors"]) for r in depth_numerical_results + depth_geometry_results)
         total_warnings = sum(len(r[1]["warnings"]) for r in depth_numerical_results + depth_geometry_results)
         
-        print(f"  深度验证完成: {len(depths)} 帧, {total_errors} 个错误, {total_warnings} 个警告")
+        print(f"  Depth validation complete: {len(depths)} frame(s), {total_errors} error(s), {total_warnings} warning(s)")
     
-    # 联合验证
+    # Joint validation
     if not pose_only and not depth_only and len(poses) > 0 and len(depths) > 0:
-        print("\n验证几何一致性...")
+        print("\nValidating geometric consistency...")
         
-        # 获取图像尺寸（从第一张深度图）
+        # Get image size from the first depth map.
         if len(depths) > 0:
             height, width = depths[0].shape[:2]
         else:
-            width, height = 1920, 1080  # 默认值
+            width, height = 1920, 1080  # default value
         
         geometry_result = validate_geometry_consistency(poses, focals, depths, width, height)
         results["geometry_validation"] = geometry_result
         
         total_errors = len(geometry_result.get("errors", []))
         total_warnings = len(geometry_result.get("warnings", []))
-        print(f"  几何一致性验证完成: {total_errors} 个错误, {total_warnings} 个警告")
+        print(f"  Geometric consistency validation complete: {total_errors} error(s), {total_warnings} warning(s)")
     
-    # 生成摘要
+    # Build summary
     total_pose_errors = sum(len(r[1]["errors"]) for r in results.get("pose_validation", {}).get("format", [])) + \
                        sum(len(r[1]["errors"]) for r in results.get("pose_validation", {}).get("geometry", []))
     total_pose_warnings = sum(len(r[1]["warnings"]) for r in results.get("pose_validation", {}).get("format", [])) + \
@@ -892,9 +892,9 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
         "geometry_warnings": len(results.get("geometry_validation", {}).get("warnings", []))
     }
     
-    # 可视化
+    # Visualization
     if visualize:
-        print("\n生成可视化...")
+        print("\nGenerating visualizations...")
         if output_dir:
             output_dir = Path(output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -908,10 +908,10 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
         if not depth_only and len(depths) > 0:
             visualize_depth_stats(depths, output_dir / "depth_stats.png")
     
-    # 生成点云
+    # Point cloud generation
     if export_pointcloud and not pose_only and not depth_only:
         if len(poses) > 0 and len(focals) > 0 and len(depths) > 0:
-            print("\n生成点云...")
+            print("\nPoint cloud generation...")
             if output_dir:
                 output_dir = Path(output_dir)
                 output_dir.mkdir(parents=True, exist_ok=True)
@@ -919,7 +919,7 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
                 output_dir = data_dir / "validation_vis"
                 output_dir.mkdir(exist_ok=True)
             
-            # 尝试加载RGB图像
+            # Try loading RGB images
             rgb_images = None
             if rgb_dir.exists() and HAS_PIL:
                 try:
@@ -931,18 +931,18 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
                             rgb_images.append(np.array(img))
                         else:
                             rgb_images.append(None)
-                    print(f"  加载了 {sum(1 for img in rgb_images if img is not None)} 张RGB图像")
+                    print(f"  Loaded {sum(1 for img in rgb_images if img is not None)} RGB image(s)")
                 except Exception as e:
-                    print(f"  警告: 无法加载RGB图像: {e}")
+                    print(f"  Warning: failed to load RGB images: {e}")
                     rgb_images = None
             
-            # 获取图像尺寸
+            # Get image size.
             if len(depths) > 0:
                 height, width = depths[0].shape[:2]
             else:
                 width, height = 1920, 1080
             
-            # 生成点云
+            # Point cloud generation
             try:
                 points, colors = generate_pointcloud(
                     poses, focals, depths,
@@ -955,23 +955,23 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
                 )
                 
                 if len(points) > 0:
-                    # 打印点云统计信息
-                    print(f"  点云统计: {len(points):,} 个点")
-                    print(f"  坐标范围:")
+                    # Print point cloud stats.
+                    print(f"  Point cloud stats: {len(points):,} points")
+                    print(f"  Coordinate range:")
                     print(f"    X: [{points[:, 0].min():.3f}, {points[:, 0].max():.3f}]")
                     print(f"    Y: [{points[:, 1].min():.3f}, {points[:, 1].max():.3f}]")
                     print(f"    Z: [{points[:, 2].min():.3f}, {points[:, 2].max():.3f}]")
-                    print(f"  中心点: ({points[:, 0].mean():.3f}, {points[:, 1].mean():.3f}, {points[:, 2].mean():.3f})")
+                    print(f"  Center: ({points[:, 0].mean():.3f}, {points[:, 1].mean():.3f}, {points[:, 2].mean():.3f})")
                     if colors is not None:
-                        print(f"  包含颜色信息")
+                        print(f"  Contains color information")
                     
-                    # 保存点云
+                    # Save point cloud
                     ply_path = output_dir / "pointcloud.ply"
                     save_pointcloud_ply(points, ply_path, colors)
                 else:
-                    print("  警告: 无法生成点云（没有有效的深度数据）")
+                    print("  Warning: cannot generate point cloud (no valid depth data)")
             except Exception as e:
-                print(f"  错误: 生成点云失败: {e}")
+                print(f"  Error: point cloud generation failed: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -979,59 +979,59 @@ def validate_all(data_dir: Path, pose_only: bool = False, depth_only: bool = Fal
 
 
 def print_summary(results: Dict):
-    """打印验证摘要"""
+    """Print validation summary"""
     summary = results.get("summary", {})
     
     print("\n" + "=" * 60)
-    print("验证摘要")
+    print("Validation summary")
     print("=" * 60)
-    print(f"总帧数: {summary.get('total_frames', 0)}")
-    print(f"\n位姿验证:")
-    print(f"  错误: {summary.get('pose_errors', 0)}")
-    print(f"  警告: {summary.get('pose_warnings', 0)}")
-    print(f"\n深度验证:")
-    print(f"  错误: {summary.get('depth_errors', 0)}")
-    print(f"  警告: {summary.get('depth_warnings', 0)}")
-    print(f"\n几何一致性验证:")
-    print(f"  错误: {summary.get('geometry_errors', 0)}")
-    print(f"  警告: {summary.get('geometry_warnings', 0)}")
+    print(f"Total frames: {summary.get('total_frames', 0)}")
+    print(f"\nPose validation:")
+    print(f"  Errors: {summary.get('pose_errors', 0)}")
+    print(f"  Warnings: {summary.get('pose_warnings', 0)}")
+    print(f"\nDepth validation:")
+    print(f"  Errors: {summary.get('depth_errors', 0)}")
+    print(f"  Warnings: {summary.get('depth_warnings', 0)}")
+    print(f"\nGeometric consistency validation:")
+    print(f"  Errors: {summary.get('geometry_errors', 0)}")
+    print(f"  Warnings: {summary.get('geometry_warnings', 0)}")
     print("=" * 60)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="验证位姿和深度数据的准确性",
+        description="Validate pose and depth data quality",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-使用示例:
-  # 完整验证
+Examples:
+  # Full validation
   python validate_pose_depth.py /path/to/data
   
-  # 只验证位姿
+  # Validate poses only
   python validate_pose_depth.py /path/to/data --pose-only
   
-  # 只验证深度
+  # Validate depth only
   python validate_pose_depth.py /path/to/data --depth-only
   
-  # 生成可视化
+  # Generate visualizations
   python validate_pose_depth.py /path/to/data --visualize
   
-  # 保存报告
+  # Save report
   python validate_pose_depth.py /path/to/data --output-report report.json
         """
     )
     
-    parser.add_argument("data_dir", help="数据目录路径")
-    parser.add_argument("--pose-only", action="store_true", help="只验证位姿")
-    parser.add_argument("--depth-only", action="store_true", help="只验证深度")
-    parser.add_argument("--visualize", action="store_true", help="生成可视化图像")
-    parser.add_argument("--export-pointcloud", action="store_true", help="导出点云（PLY格式）")
-    parser.add_argument("--pointcloud-downsample", type=int, default=2, help="点云下采样因子（默认: 2，即每2个像素取1个）")
-    parser.add_argument("--pointcloud-max-points", type=int, default=None, help="点云最大点数（默认: 无限制）")
-    parser.add_argument("--pointcloud-depth-min", type=float, default=None, help="最小深度值（过滤过近的点，相机坐标系Z）")
-    parser.add_argument("--pointcloud-depth-max", type=float, default=None, help="最大深度值（过滤过远的点，相机坐标系Z）")
-    parser.add_argument("--output-report", help="保存验证报告到JSON文件")
-    parser.add_argument("--output-dir", help="可视化输出目录（默认: data_dir/validation_vis）")
+    parser.add_argument("data_dir", help="Path to data directory")
+    parser.add_argument("--pose-only", action="store_true", help="Validate poses only")
+    parser.add_argument("--depth-only", action="store_true", help="Validate depth only")
+    parser.add_argument("--visualize", action="store_true", help="Generate visualization images")
+    parser.add_argument("--export-pointcloud", action="store_true", help="Export point cloud (PLY)")
+    parser.add_argument("--pointcloud-downsample", type=int, default=2, help="Point cloud downsample factor (default: 2)")
+    parser.add_argument("--pointcloud-max-points", type=int, default=None, help="Maximum point count for point cloud (default: unlimited)")
+    parser.add_argument("--pointcloud-depth-min", type=float, default=None, help="Minimum depth value for filtering near points (camera Z)")
+    parser.add_argument("--pointcloud-depth-max", type=float, default=None, help="Maximum depth value for filtering far points (camera Z)")
+    parser.add_argument("--output-report", help="Save validation report to JSON file")
+    parser.add_argument("--output-dir", help="Visualization output directory (default: data_dir/validation_vis)")
     
     args = parser.parse_args()
     
@@ -1054,10 +1054,10 @@ def main():
         if args.output_report:
             with open(args.output_report, 'w') as f:
                 json.dump(results, f, indent=2, default=str)
-            print(f"\n验证报告已保存: {args.output_report}")
+            print(f"\nValidation report saved: {args.output_report}")
         
     except Exception as e:
-        print(f"错误: {e}", file=sys.stderr)
+        print(f"Errors: {e}", file=sys.stderr)
         import traceback
         traceback.print_exc()
         sys.exit(1)
